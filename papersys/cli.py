@@ -5,11 +5,14 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import uvicorn
 from loguru import logger
 
 from .config import AppConfig, load_config
 from .recommend import RecommendationDataLoader
+from .scheduler import SchedulerService
 from .summary import SummaryPipeline
+from .web import create_app
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +43,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Validate the summary pipeline without executing external calls",
+    )
+
+    serve_parser = subparsers.add_parser("serve", help="Run the scheduler and API server")
+    serve_parser.add_argument(
+        "--host", type=str, default="127.0.0.1", help="Host to bind the API server to"
+    )
+    serve_parser.add_argument(
+        "--port", type=int, default=8000, help="Port to bind the API server to"
+    )
+    serve_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Set up the scheduler and report status without running the server",
     )
 
     return parser
@@ -82,6 +98,29 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         logger.warning("Summary execution requires input data which is not wired yet. Use --dry-run for checks.")
+        return 0
+
+    if command == "serve":
+        scheduler_service = SchedulerService(config, dry_run=args.dry_run)
+        scheduler_service.setup_jobs()
+
+        if args.dry_run:
+            logger.info("[Dry Run] Server will not be started.")
+            return 0
+
+        app = create_app(scheduler_service)
+
+        @app.on_event("startup")
+        async def startup_event():
+            logger.info("Application startup...")
+            scheduler_service.start()
+
+        @app.on_event("shutdown")
+        async def shutdown_event():
+            logger.info("Application shutdown...")
+            scheduler_service.shutdown()
+
+        uvicorn.run(app, host=args.host, port=args.port)
         return 0
 
     logger.warning("Unknown command: {}", command)

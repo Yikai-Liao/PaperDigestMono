@@ -18,7 +18,7 @@
 | T5 | 迁移推荐/摘要/LLM 配置模型，扩展示例配置 | `papersys/config/recommend.py`、`summary.py`、`llm.py` 等；更新 `config/example.toml`；扩充测试 | `uv run --no-progress pytest tests/config/test_load_config.py` 通过；文档同步说明配置层级 | ✅ |
 | T6 | 封装推荐管线模块（数据加载、训练、预测） | `papersys/recommend/*.py`；最小数据 fixture & 单测 | `uv run --no-progress pytest tests/recommend/test_trainer.py` 等通过；CLI 能输出推荐模块状态 | ✅ |
 | T7 | 构建摘要流水线骨架（PDF 获取、LLM 调用、渲染接口） | `papersys/summary/*.py`；异步/重试策略；日志接口 | `uv run --no-progress pytest tests/summary/test_pipeline.py`；CLI `summarize --dry-run` 输出模块状态 | ✅ |
-| T8 | 实现调度服务与本地控制台（FastAPI + APScheduler） | `papersys/scheduler/service.py`、`papersys/web/app.py`；CLI 新增 `serve` 子命令 | `uv run --no-progress python -m papersys.cli serve --dry-run` 成功输出监听信息；新增 API 健康检查测试 | |
+| T8 | 实现调度服务与本地控制台（FastAPI + APScheduler） | `papersys/scheduler/service.py`、`papersys/web/app.py`；CLI 新增 `serve` 子命令 | `uv run --no-progress python -m papersys.cli serve --dry-run` 成功输出监听信息；新增 API 健康检查测试 | ✅ |
 | T9 | 数据目录整理与迁移脚本 | `scripts/migrate_data.py`；支持 `--dry-run`；更新文档 | 在临时目录执行脚本输出目标结构；脚本测试通过 | |
 | T10 | 集成测试：凑齐"抓取→嵌入→推荐→摘要→输出" 验证链路 | `tests/system/test_pipeline.py`；CLI `pipeline --dry-run` | `uv run --no-progress pytest tests/system/test_pipeline.py` 通过；命令正确串联模块 | |
 
@@ -149,3 +149,32 @@
 - 构建 FastAPI 控制台骨架与 `/health`、`/jobs`、手动触发接口。
 - CLI 新增 `serve` 子命令并编写单测，覆盖 dry-run 行为。
 - 补充调度/控制台文档片段至 `devdoc/architecture.md`。
+
+---
+
+## 11. T8 执行记录（2025-10-01）
+
+### 交付物
+- **SchedulerService (`papersys/scheduler/service.py`)**: 实现了基于 `APScheduler` 的作业调度服务，支持从配置中加载 cron 作业、dry-run 验证和优雅关闭。
+- **FastAPI Web App (`papersys/web/app.py`)**: 构建了 Web 控制台骨架，提供了 `/health` (健康检查), `/jobs` (列出作业), 和 `/scheduler/run/{job_id}` (手动触发) API 端点。
+- **CLI `serve` 命令 (`papersys/cli.py`)**: 新增了 `serve` 子命令，用于启动调度器和 FastAPI 应用，并支持 `--dry-run` 模式。
+- **配置更新**:
+  - `papersys/config/scheduler.py`: 修正并实现了与开发计划一致的 `SchedulerConfig` 和 `SchedulerJobConfig` 模型。
+  - `config/example.toml`: 更新了 `[scheduler]` 部分以匹配新的配置模型。
+- **单元测试**:
+  - `tests/scheduler/test_service.py`: 为 `SchedulerService` 添加了单元测试。
+  - `tests/web/test_app.py`: 为 FastAPI 应用的 API 端点添加了单元测试。
+  - `tests/cli/test_cli_serve.py`: 为 CLI `serve` 命令添加了单元测试。
+- **文档更新**:
+  - `devdoc/architecture.md`: 更新了架构文档，增加了关于调度器和 Web 控制台的详细说明。
+
+### 验收结果
+- `uv run pytest tests/`：所有 28 个测试全部通过，包括为新组件编写的 9 个测试。
+- `uv run python -m papersys.cli --config config/example.toml serve --dry-run`: 命令成功执行并输出预期的 dry-run 日志，验证了配置加载和作业注册逻辑。
+- API 手动验证：通过 `TestClient` 在测试中验证了 `/health`, `/jobs`, 和 `/scheduler/run/{job_id}` 端点的功能。
+
+### 遇到的问题 & 处理
+- **日志模块不一致**: 初期代码错误地使用了 `logging` 而不是项目规范的 `loguru`。已在 `service.py` 和 `app.py` 中修正。
+- **Pytest 模块冲突**: `tests/cli/test_cli.py` 与 `tests/summary/test_cli.py` 文件名冲突导致 `pytest` 收集错误。通过重命名为 `test_cli_serve.py` 和 `test_cli_summarize.py` 解决。
+- **Pydantic 配置模型不匹配**: `papersys/config/scheduler.py` 中的模型与开发计划不符，导致测试中的 `ValidationError`。已按照开发计划重写该文件。
+- **`pytest` 日志捕获问题**: `caplog` 无法捕获 `loguru` 的输出。在测试函数中通过重新配置 `loguru` sink 到 `sys.stderr`，并改用 `capsys` 捕获 `stderr` 来解决。

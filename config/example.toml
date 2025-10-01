@@ -8,19 +8,17 @@ logging_level = "INFO"
 
 # Scheduler configuration
 [scheduler]
-timezone = "Asia/Shanghai"
-
-[scheduler.summary]
 enabled = true
-interval_minutes = 120
-dry_run = true
-max_instances = 1
 
-[scheduler.recommendation]
+[scheduler.recommend_job]
 enabled = true
-interval_minutes = 180
-dry_run = false
-max_instances = 1
+name = "recommendation-pipeline"
+cron_schedule = "0 5 * * *" # Daily at 5 AM UTC
+
+[scheduler.summary_job]
+enabled = true
+name = "summary-pipeline"
+cron_schedule = "0 6 * * *" # Daily at 6 AM UTC
 
 # Recommendation pipeline configuration
 [recommend_pipeline.data]
