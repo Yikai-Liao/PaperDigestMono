@@ -35,9 +35,33 @@ def test_load_config_missing_file(tmp_path: Path) -> None:
 
 
 def test_app_config_example_file() -> None:
+    """Test loading the complete example.toml with all pipeline configs."""
     config_path = Path(__file__).resolve().parents[2] / "config" / "example.toml"
     cfg = load_config(AppConfig, config_path)
 
+    # Legacy/general fields
     assert cfg.data_root == Path("./data")
     assert cfg.scheduler_enabled is True
     assert cfg.logging_level == "INFO"
+
+    # Recommendation pipeline
+    assert cfg.recommend_pipeline is not None
+    assert cfg.recommend_pipeline.data.cache_dir == "./cache"
+    assert cfg.recommend_pipeline.data.embedding_columns == ["jasper_v1", "conan_v1"]
+    assert cfg.recommend_pipeline.trainer.seed == 42
+    assert cfg.recommend_pipeline.trainer.logistic_regression.C == 1.0
+    assert cfg.recommend_pipeline.predict.last_n_days == 7
+    assert cfg.recommend_pipeline.predict.high_threshold == 0.85
+
+    # Summary pipeline
+    assert cfg.summary_pipeline is not None
+    assert cfg.summary_pipeline.pdf.output_dir == "./pdfs"
+    assert cfg.summary_pipeline.pdf.model == "deepseek-r1"
+    assert cfg.summary_pipeline.pdf.language == "zh"
+
+    # LLM configurations
+    assert len(cfg.llms) == 2
+    deepseek = next((llm for llm in cfg.llms if llm.alias == "deepseek-r1"), None)
+    assert deepseek is not None
+    assert deepseek.name == "deepseek-reasoner"
+    assert deepseek.num_workers == 10

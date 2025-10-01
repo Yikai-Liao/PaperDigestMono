@@ -4,7 +4,35 @@
 
 我的目标是搭建一个自动化的论文推送系统，包含了论文信息收集，筛选，归纳总结，可视化展示，反馈收集这么几个宏观的流程。
 
-具体来讲，就是每天自动从Arxiv爬虫获取最新的论文meta data（包含摘要），然后自动更新一个总的论文 Embedding 池中。根据历史中已有的二分类数据，使用特定算法训练一个输入为Embedding的简单的二分类模型，根据这模型的打分结果，采样出一定数量的论文作为新增的需要展示的论文。然后获取这些论文具体的latex/pdf，转换为markdown形式，然后通过特定的prompt输入给llm api进行摘要，抽取我需要的特定信息（包含多个字段）保存到json中。这个json作为数据存储的媒介，可以快速格式化到各种形式。之后的流程是，格式化为markdown，添加到一个静态博客中，发布到cloudflare。这个静态博客接入了giscus系统，因此我可以通过定期检测github discussion中每个论文对应的评论区中来自用户自己添加的表情，来确定这个新论文的标签是possive 还是negtive，这个数据会被收集起来，用于下一轮的模型训练。
+具体来讲### 配置管理策略
+
+- 提供一个根配置文件 `config.toml`，由 `BaseConfig`（Pydantic `BaseModel`）解析。
+- 按子模块继承，例如 `EmbeddingConfig`, `LLMConfig`, `SchedulerConfig`，均实现 `@classmethod from_toml(path: Path)`。
+- 在运行时通过简单的 `load_config()` 辅助函数向各服务注入 Pydantic 对象；如未来出现多进程/多租户需求，可再引入 `ConfigRegistry` 或依赖注入容器，但当前阶段保持简洁。
+- 配置变更通常低频,约定"修改后重启服务"，无需支持热加载，仅需启动时校验并输出有效配置快照。
+- 在参考仓库落地：
+	- `ArxivEmbedding` 中的模型列表由 `EmbeddingConfig` 管理，取代当前直接访问字典。
+	- `PaperDigest` 中的 LLM 参数、模板路径、采样阈值通过 `LLMConfig` 和 `PipelineConfig` 提供，脚本重构为 `uv run python -m paper_digest.cli summarize --config ./config.toml` 类似接口。
+
+#### 配置模块层级（已落地）
+
+当前在 `papersys/config/` 下已实现以下配置模型（严格 Pydantic 验证，`extra="forbid"` + `frozen=True`）：
+
+- **`base.py`**：`BaseConfig` 基类与 `load_config` 辅助函数，统一 TOML 读取逻辑。
+- **`llm.py`**：`LLMConfig` 定义单个 LLM 端点（alias、name、base_url、api_key、temperature、top_p、num_workers、reasoning_effort、native_json_schema）。
+- **`recommend.py`**：
+  - `LogisticRegressionConfig`：C、max_iter。
+  - `TrainerConfig`：seed、bg_sample_rate、logistic_regression。
+  - `DataConfig`：categories、embedding_columns、preference_dir、background_start_year、preference_start_year、embed_repo_id、content_repo_id、cache_dir。
+  - `PredictConfig`：last_n_days、start_date、end_date、high_threshold、boundary_threshold、sample_rate、output_path。
+  - `RecommendPipelineConfig`：聚合以上 data/trainer/predict 子节点。
+- **`summary.py`**：
+  - `PdfConfig`：output_dir、delay、max_retry、model（LLM alias）、language、enable_latex、acceptable_cache_model。
+  - `SummaryPipelineConfig`：包含 pdf 节点。
+- **`app.py`**：`AppConfig` 顶层配置（data_root、scheduler_enabled、embedding_models、logging_level 为历史兼容字段；recommend_pipeline、summary_pipeline、llms 为新业务配置列表）。
+
+示例配置 `config/example.toml` 包含完整字段，单元测试 `tests/config/test_*.py` 覆盖各层级读取与严格性校验，CLI `--dry-run` 输出详细状态。
+xiv爬虫获取最新的论文meta data（包含摘要），然后自动更新一个总的论文 Embedding 池中。根据历史中已有的二分类数据，使用特定算法训练一个输入为Embedding的简单的二分类模型，根据这模型的打分结果，采样出一定数量的论文作为新增的需要展示的论文。然后获取这些论文具体的latex/pdf，转换为markdown形式，然后通过特定的prompt输入给llm api进行摘要，抽取我需要的特定信息（包含多个字段）保存到json中。这个json作为数据存储的媒介，可以快速格式化到各种形式。之后的流程是，格式化为markdown，添加到一个静态博客中，发布到cloudflare。这个静态博客接入了giscus系统，因此我可以通过定期检测github discussion中每个论文对应的评论区中来自用户自己添加的表情，来确定这个新论文的标签是possive 还是negtive，这个数据会被收集起来，用于下一轮的模型训练。
 
 ## 前身架构设计
 

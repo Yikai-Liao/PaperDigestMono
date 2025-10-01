@@ -1,0 +1,70 @@
+"""Recommendation pipeline configuration models."""
+
+from __future__ import annotations
+
+from pydantic import Field
+
+from papersys.config.base import BaseConfig
+
+
+class LogisticRegressionConfig(BaseConfig):
+    """Logistic regression hyperparameters."""
+
+    C: float = Field(1.0, gt=0.0, description="Inverse of regularization strength")
+    max_iter: int = Field(1000, ge=1, description="Maximum iteration count")
+
+
+class TrainerConfig(BaseConfig):
+    """Configuration for recommendation model training."""
+
+    seed: int = Field(42, description="Random seed for reproducibility")
+    bg_sample_rate: float = Field(5.0, gt=0.0, description="Background sampling rate")
+    logistic_regression: LogisticRegressionConfig = Field(
+        default_factory=lambda: LogisticRegressionConfig(),
+        description="Logistic regression parameters",
+    )
+
+
+class DataConfig(BaseConfig):
+    """Configuration for recommendation data sources."""
+
+    categories: list[str] = Field(
+        default_factory=lambda: ["cs.CL", "cs.CV", "cs.AI", "cs.LG", "stat.ML", "cs.IR", "cs.CY"],
+        description="Arxiv paper categories to consider",
+    )
+    embedding_columns: list[str] = Field(..., description="Embedding column names")
+    preference_dir: str = Field("./preference", description="Directory containing preference data")
+    background_start_year: int = Field(2024, ge=2000, description="Start year for background corpus")
+    preference_start_year: int = Field(2023, ge=2000, description="Start year for preference data")
+    embed_repo_id: str = Field("lyk/ArxivEmbedding", description="HuggingFace repo for embeddings")
+    content_repo_id: str = Field("lyk/ArxivContent", description="HuggingFace repo for content data")
+    cache_dir: str = Field(..., description="Local cache directory path")
+
+
+class PredictConfig(BaseConfig):
+    """Configuration for recommendation prediction parameters."""
+
+    last_n_days: int = Field(7, ge=1, description="Number of recent days to predict")
+    start_date: str = Field("", description="Prediction start date (YYYY-MM-DD), empty uses last_n_days")
+    end_date: str = Field("", description="Prediction end date (YYYY-MM-DD), empty uses last_n_days")
+    high_threshold: float = Field(0.85, ge=0.0, le=1.0, description="High-confidence threshold")
+    boundary_threshold: float = Field(0.6, ge=0.0, le=1.0, description="Boundary threshold")
+    sample_rate: float = Field(0.001, gt=0.0, le=1.0, description="Sampling rate for predictions")
+    output_path: str = Field(..., description="Output path for recommendation results")
+
+
+class RecommendPipelineConfig(BaseConfig):
+    """Complete recommendation pipeline configuration."""
+
+    data: DataConfig
+    trainer: TrainerConfig = Field(default_factory=lambda: TrainerConfig())
+    predict: PredictConfig
+
+
+__all__ = [
+    "LogisticRegressionConfig",
+    "TrainerConfig",
+    "DataConfig",
+    "PredictConfig",
+    "RecommendPipelineConfig",
+]
