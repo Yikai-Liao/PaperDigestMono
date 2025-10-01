@@ -130,4 +130,4 @@
 - 2025-10-01 T2 完成：工作区相对 `b327159b8aa6fe3a7570ee9ec4fb7c7b2d482896` 新增 `papersys/` 骨架，尚未提交
 - 2025-10-01 T3 完成：新增 `pyproject.toml`、`uv.lock`、`config/example.toml`、`papersys/config/base.py`、`papersys/config/app.py`、测试目录等；调整 `papersys/config/__init__.py`
 - 2025-10-01 T4 完成：新增 `papersys/cli.py`，通过 `uv run --no-progress python -m papersys.cli --dry-run` 验证
-- 2025-10-01 提交记录：`a40968659d800cd226050e4a253975f10e75aa8d`（包含 T2-T4 变更）
+- 2025-10-01 提交记录：`9f7260b3ab03ee846511ba13475caae4dc367b46`（包含 T2-T4 变更）
