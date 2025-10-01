@@ -1,0 +1,9 @@
+[submodule "reference/ArxivEmbedding"]
+	path = reference/ArxivEmbedding
+	url = git@github.com:Yikai-Liao/ArxivEmbedding.git
+[submodule "reference/PaperDigest"]
+	path = reference/PaperDigest
+	url = git@github.com:Yikai-Liao/PaperDigest.git
+[submodule "reference/PaperDigestAction"]
+	path = reference/PaperDigestAction
+	url = git@github.com:Yikai-Liao/PaperDigestAction.git
