@@ -8,6 +8,8 @@ from pathlib import Path
 from loguru import logger
 
 from .config import AppConfig, load_config
+from .recommend import RecommendationDataLoader
+from .summary import SummaryPipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,8 +23,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
+        help="(legacy) Equivalent to 'status --dry-run'",
+    )
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    status_parser = subparsers.add_parser("status", help="Show configuration and subsystem status")
+    status_parser.add_argument(
+        "--dry-run",
+        action="store_true",
         help="Load configuration and report subsystem availability",
     )
+
+    summarize_parser = subparsers.add_parser("summarize", help="Inspect or run the summary pipeline")
+    summarize_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate the summary pipeline without executing external calls",
+    )
+
     return parser
 
 
@@ -34,12 +53,39 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Loading configuration from {}", config_path)
     config = load_config(AppConfig, config_path)
 
-    if args.dry_run:
-        _report_system_status(config)
+    command = args.command
+    if command is None:
+        if args.dry_run:
+            _report_system_status(config)
+            return 0
+        logger.warning("No command provided. Try 'status --dry-run' or 'summarize --dry-run'.")
         return 0
 
-    logger.warning("No active commands were provided. Use --dry-run for status checks.")
-    return 0
+    if command == "status":
+        if getattr(args, "dry_run", False):
+            _report_system_status(config)
+        else:
+            logger.info("Status command currently supports --dry-run only; showing status.")
+            _report_system_status(config)
+        return 0
+
+    if command == "summarize":
+        base_path = config.data_root or config_path.parent
+        try:
+            pipeline = SummaryPipeline(config, base_path=base_path)
+        except ValueError as exc:
+            logger.error("Cannot initialise summary pipeline: {}", exc)
+            return 1
+
+        if getattr(args, "dry_run", False):
+            pipeline.run([], dry_run=True)
+            return 0
+
+        logger.warning("Summary execution requires input data which is not wired yet. Use --dry-run for checks.")
+        return 0
+
+    logger.warning("Unknown command: {}", command)
+    return 1
 
 
 def _report_system_status(config: AppConfig) -> None:
@@ -62,6 +108,23 @@ def _report_system_status(config: AppConfig) -> None:
         logger.info("Categories: {}", ", ".join(rp.data.categories))
         logger.info("Trainer seed: {}, bg_sample_rate: {}", rp.trainer.seed, rp.trainer.bg_sample_rate)
         logger.info("Predict output: {}", rp.predict.output_path)
+        try:
+            base_path = config.data_root or Path.cwd()
+            loader = RecommendationDataLoader(config, base_path=base_path)
+            sources = loader.describe_sources()
+            missing = set(sources.missing())
+            logger.info(
+                "Preference dir: {} (exists={})",
+                sources.preference_dir,
+                "preference_dir" not in missing,
+            )
+            logger.info(
+                "Cache dir: {} (exists={})",
+                sources.cache_dir,
+                "cache_dir" not in missing,
+            )
+        except Exception as exc:
+            logger.debug("Recommendation data loader inspection failed: {}", exc)
     else:
         logger.info("Not configured")
 

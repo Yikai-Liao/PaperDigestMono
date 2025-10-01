@@ -117,6 +117,8 @@
 | T3 | 实现 Pydantic `BaseConfig` 与 `load_config()` 工具，并提供样例配置 | `papersys/config/base.py`、`config/example.toml`、最小测试 | `uv run python -m pytest tests/config/test_load_config.py` 通过；示例配置加载成功 | ✅ 2025-10-01 |
 | T4 | 打通最小 Orchestrator CLI，加载配置并输出各模块状态 | `papersys/cli.py` 及脚本入口 | `uv run python -m papersys.cli --dry-run` 成功打印模块概览 | ✅ 2025-10-01 |
 | T5 | 迁移推荐/摘要/LLM 配置模型，扩展示例配置 | `papersys/config/{recommend,summary,llm}.py`；更新 `config/example.toml` 及测试 | `uv run --no-progress pytest tests/config/` 全通过；CLI `--dry-run` 显示完整配置层级 | ✅ 2025-10-02 |
+| T6 | 推荐管线骨架落地（数据加载、训练、预测） | `papersys/recommend/*.py`、CLI 状态输出增强、推荐集成测试 | `uv run --no-progress pytest tests/recommend/ -v` 通过；CLI `status --dry-run` 输出数据源信息 | ✅ 2025-10-02 |
+| T7 | 摘要管线骨架落地（PDF 占位、LLM Stub、Markdown 渲染） | `papersys/summary/*.py`、`tests/summary/*`、CLI `summarize --dry-run` | `uv run --no-progress pytest tests/summary/ -v` 通过；CLI `summarize --dry-run` 创建目录 | ✅ 2025-10-02 |
 
 ### 标准化验收方式
 
@@ -134,6 +136,7 @@
 - 2025-10-01 提交记录：`9f7260b3ab03ee846511ba13475caae4dc367b46`（包含 T2-T4 变更）
 - 2025-10-02 T5 完成：新增配置模型（llm/recommend/summary）、扩充测试（12 测试通过）、更新 CLI 与 architecture.md
 - 2025-10-02 T5 提交记录：`2fd9da3`（已推送远程）
+- 2025-10-02 T6/T7：推荐与摘要管线正在本地迭代，尚未提交，参考 `devlog/2025-10-config-refactor-plan.md` 中的执行记录
 
 ### 后续任务索引
 

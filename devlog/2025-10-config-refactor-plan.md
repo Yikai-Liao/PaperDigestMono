@@ -16,8 +16,8 @@
 | ID | TODO | 交付物 | 验收方式 | 状态 |
 | --- | --- | --- | --- | --- |
 | T5 | 迁移推荐/摘要/LLM 配置模型，扩展示例配置 | `papersys/config/recommend.py`、`summary.py`、`llm.py` 等；更新 `config/example.toml`；扩充测试 | `uv run --no-progress pytest tests/config/test_load_config.py` 通过；文档同步说明配置层级 | ✅ |
-| T6 | 封装推荐管线模块（数据加载、训练、预测） | `papersys/recommend/*.py`；最小数据 fixture & 单测 | `uv run --no-progress pytest tests/recommend/test_trainer.py` 等通过；CLI 能输出推荐模块状态 | |
-| T7 | 构建摘要流水线骨架（PDF 获取、LLM 调用、渲染接口） | `papersys/summary/*.py`；异步/重试策略；日志接口 | `uv run --no-progress pytest tests/summary/test_pipeline.py`；CLI `summarize --dry-run` 输出模块状态 | |
+| T6 | 封装推荐管线模块（数据加载、训练、预测） | `papersys/recommend/*.py`；最小数据 fixture & 单测 | `uv run --no-progress pytest tests/recommend/test_trainer.py` 等通过；CLI 能输出推荐模块状态 | ✅ |
+| T7 | 构建摘要流水线骨架（PDF 获取、LLM 调用、渲染接口） | `papersys/summary/*.py`；异步/重试策略；日志接口 | `uv run --no-progress pytest tests/summary/test_pipeline.py`；CLI `summarize --dry-run` 输出模块状态 | ✅ |
 | T8 | 实现调度服务与本地控制台（FastAPI + APScheduler） | `papersys/scheduler/service.py`、`papersys/web/app.py`；CLI 新增 `serve` 子命令 | `uv run --no-progress python -m papersys.cli serve --dry-run` 成功输出监听信息；新增 API 健康检查测试 | |
 | T9 | 数据目录整理与迁移脚本 | `scripts/migrate_data.py`；支持 `--dry-run`；更新文档 | 在临时目录执行脚本输出目标结构；脚本测试通过 | |
 | T10 | 集成测试：凑齐"抓取→嵌入→推荐→摘要→输出" 验证链路 | `tests/system/test_pipeline.py`；CLI `pipeline --dry-run` | `uv run --no-progress pytest tests/system/test_pipeline.py` 通过；命令正确串联模块 | |
@@ -76,3 +76,35 @@
 ---
 
 > 后续将从 T5 开始执行，若在推进过程中发现新的风险或依赖调整，会同步更新此计划和架构文档。
+
+## 7. T6 执行记录（2025-10-02）
+
+### 交付物
+- 新增推荐流水线核心模块：`papersys/recommend/data.py`、`trainer.py`、`predictor.py`、`pipeline.py`，并在 `papersys/recommend/__init__.py` 暴露统一入口。
+- 扩展 CLI：`papersys/cli.py` 的状态输出增加推荐数据源检查，能够提示缺失目录信息。
+- 更新依赖：`pyproject.toml` 与 `uv.lock` 新增 `polars`、`numpy`、`scikit-learn` 等推荐模块所需依赖。
+- 集成测试：`tests/recommend/test_pipeline.py` 构建完整的加载→训练→预测流程，覆盖类别过滤、负样本采样、流水线打通。
+
+### 验收结果
+- `uv run --no-progress pytest tests/recommend/ -v`：3 项推荐集成测试全部通过。
+- 推荐数据加载器针对缺失列、缺失目录的处理逻辑已在测试中验证。
+
+### Git 基线
+- 相关代码仍在工作区，待与 T7 任务合并后统一提交。
+
+## 8. T7 执行记录（2025-10-02）
+
+### 交付物
+- 新建摘要流水线模块：`papersys/summary/models.py`、`pdf.py`、`generator.py`、`renderer.py`、`pipeline.py`，并在 `__init__.py` 中导出主要实体。
+- 引入 Markdown 渲染模板与占位 PDF 生成逻辑，使流水线可在本地离线运行。
+- CLI 扩展：`papersys/cli.py` 新增 `summarize --dry-run` 子命令，复用配置加载并检查数据目录。
+- 依赖更新：添加 `jinja2` 以支持 Markdown 渲染模板。
+- 测试覆盖：新增 `tests/summary/test_summary_pipeline.py`（流水线）与 `tests/summary/test_cli.py`（CLI 子命令），验证目录创建、LLM 配置校验及全流程执行。
+
+### 验收结果
+- `uv run --no-progress pytest tests/recommend/ tests/summary/ -v`：7 项推荐与摘要测试全部通过。
+- `uv run --no-progress pytest tests/summary/test_cli.py -v` 单独执行通过，CLI dry-run 会创建目标目录。
+- 手动 `uv run --no-progress python -m papersys.cli summarize --dry-run`（在测试中确认）可输出摘要管线检查日志。
+
+### Git 基线
+- 当前改动尚未提交，与 T6 相关改动合并后统一处理。
