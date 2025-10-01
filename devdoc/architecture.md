@@ -8,73 +8,157 @@
 
 ## 前身架构设计
 
-之前版本的代码，被我拆分为了 `ArxivEmbedding` 和 `PaperDigest` 两个仓库，我将其作为submodule 添加到了 `reference` 路径下，以供参考。
-也就是说以抽取Embedding为便捷，我将整体流程进行了切割。
+之前版本的代码被拆分为 `ArxivEmbedding` 与 `PaperDigest` 两个仓库，并在当前仓库的 `reference/` 目录下以子模块形式保留，另有 `PaperDigestAction` 作为 GitHub Action 封装。整体流程依赖 Hugging Face Dataset 作为远端数据中枢，GitHub Actions 负责定时触发各阶段脚本。
 
-另外，这一版方案中，我以huggingface dataset 和github action 为核心进行设计，使用按年份划分的parquet进行存储，将其作为远程的存储核心（因为有免费的无限量公共存储容量）
+### 总体流程（历史版本）
 
-### ArxivEmbedding
+1. **元数据采集**：`reference/ArxivEmbedding/script/fetch_arxiv_oai.py` 与 `fetch_arxiv_oai_by_date.py` 通过 OAI-PMH 接口按年份/时间段抓取论文元数据，合并为年度 Parquet 并推送到 Hugging Face。
+2. **嵌入补齐**：`incremental_embed_workflow.py` 下载对应年份 Parquet，找出嵌入为空的论文，调用 `local_split_tasks.py` + `process_matrix_tasks.py`（或本地 `batch_embed_local.sh`）批量补全多个模型的向量，再上传覆盖。
+3. **推荐与摘要**：`reference/PaperDigest/script/fit_predict.py` 消耗偏好 CSV 与向量数据生成候选集合，`download_pdf.py`/`summarize.py` 获取 PDF 并调用 OpenAI/Gemini API 输出结构化 JSON，随后 `render_md.py` 渲染 Markdown。
+4. **内容发布与反馈**：GitHub Actions 调用 `website/` 构建脚本，把 Markdown 发布到 Cloudflare Pages 并通过 giscus 讨论区收集反馈；`fetch_discussion.py` 定期读取讨论中的表情标记回写偏好数据。
 
-在这个仓库中，分为爬虫和embedding两个主要环节：
-* 每日爬虫：每天通过Arxiv API 获取最近两日的论文meta data，将embedding 字段设置为 全0或者nan的vector，合并到当前年份对应的parquet文件中。立即将该文件推动到Hugging Face
-* Embedding: 下载当前年份的parquet，过滤出所有含nan或者全0的vector的行，然后使用多个制定的模型进行Embedding批量提取，填充回去之后立即上传。因为这一步是计算密集型，我利用了github aciton public仓库免费的特性，使用大量的matrix进行了任务拆分与并行，使用cpu进行embedding抽取。
+### 关键代码仓库与职责
 
-### PaperDigest
+- **`ArxivEmbedding`**：以嵌入为核心的流水线。`config.toml` 使用模型键（如 `Embedding.jasper_v1`）管理多个嵌入模型的名称与维度。脚本依赖 `polars` 处理 Parquet，`huggingface_hub` 同步数据。
+- **`PaperDigest`**：聚合推荐、摘要、渲染、部署流程。目录下的 `script/` 包含从模型训练、PDF 下载到 Markdown 渲染的完整链路；`docs/` 记录多个线上问题的修复过程。
+- **`PaperDigestAction`**：把上述流程包装成可复用的 GitHub Action，附带偏好清理、Zotero 导入等工具脚本，强调 fork 后快速启用。
 
-这个仓库主要包含了静态网页的代码，与论文摘要的代码，使用了openai 的兼容api，并且非常不优雅的，在match到gemini时，单独使用了gemini的genai sdk，并且硬编码了模型的token价格。
+### 数据形态与传输路径
 
-tag的抽取不够优雅，目前采取了一种类似 BatchNorm 思想的解决方案，给出抽取tag的规范，然后在将一个批次的所有tag输入给LLM API，让其进行合并，详见一个变体，`reference/PaperDigestAction` 这个submodule。
+- **论文元数据**：年度 Parquet，列包含 `id/title/abstract/categories/created/updated` 及多个模型向量列。
+- **向量数据**：与元数据合并存放，未完成时以全 0 或 `NaN` 占位。
+- **推荐结果**：`PaperDigest/data/predictions.parquet` 储存候选论文与打分。
+- **摘要输出**：`raw/` 下的 JSON + `content/` 下的 Markdown；部分示例 JSON 放在 `examples/`。
+- **偏好反馈**：`preference/*.csv`，以 `arxiv_id` + `preference` 字段记录。
 
-### 目前发现的问题
+数据交换主要依赖 Hugging Face Dataset 作为中心仓库，经由 GitHub Actions 多次上传、下载，缺乏本地缓存与增量同步机制。
 
-#### 计算密集型问题
+### 基础设施与运行方式
 
-过度依赖了Github Action，将计算密集任务放在上面，目前已经出现了该仓库的特定任务一直被Queue的情况。因此，我计划将计算密集型任务转移到我本地准备7x24h开机的2060 6G 
-笔记本中，使用cron，或者python的schedule进行本地运算。
+- **触发机制**：GitHub Actions 定时/手动触发多个 Workflow（嵌入、推荐、网页构建），Action 内使用 `uv run` 执行脚本。
+- **计算资源**：嵌入阶段大量使用 GitHub Actions matrix 并行，CPU 推理为主；本地 GPU 脚本 `batch_embed_local.sh` 仅在手动场景使用。
+- **机密信息**：API Key、PAT 借助 GitHub Secrets 注入。
 
-由于Action的独立性，进行了多次上传，这在本地运行是不必要的，可以将Huggingface的仓库clone到本地使用，每隔几天push一次即可。
+### 历史痛点与经验
 
-#### Tag 重复问题
+| 类别 | 表现 | 影响 |
+| ---- | ---- | ---- |
+| 计算资源 | GitHub Actions 排队、耗时长，缺乏本地兜底 | 嵌入与推荐延迟大，易被速率限制 |
+| 数据同步 | 每个阶段频繁向 Hugging Face 上传完整文件 | 传输成本高，难以调试增量差异 |
+| 标签治理 | `summarize.py` 中关键词合并依赖一次性 LLM 调用 | 语义重复积累，知识图谱难扩展 |
+| 代码结构 | 脚本化调用，模块间缺少清晰边界与类型约束 | 扩展新功能需跨脚本修改，测试困难 |
+| LLM 调度 | OpenAI 与 Gemini 混用，Fallback 逻辑分散 | 行为不可预期，错误处理复杂 |
 
-目前提取的Tag仅仅在Batch内进行LLM去重，效果有限，时间积累下仍然出现了不少重复语义的Tag，需要优化解决方案。
+### 尚未落地但规划过的功能
 
-#### 架构文件混乱
-
-虽然我有意识做了文件管理，但是文件多分散到了大量的script中，没有形成体系，调用需要依靠命令行指令串联，无法将其直接作为python class或者类进行调用。
-
-#### AI 调用混乱
-
-目前LLM API使用了openai 库调用，gemini单独使用了google genai，然后使用了pydantic完成结构化输出，但是为了满足一些不支持结构化输出的模型还fallback到了一些更原始的json解析上。而且目前是一个prompt 直接出，完全没有考虑过多轮调用，agent化，应该如何处理，因为完全没有使用相关的agent框架，当然，目前功能还没有agent化的需求。
-
-### 潜在的未实现功能
-
-#### 文章联系发掘
-
-目前仅仅一对一的对文章进行了信息提取，没有将有潜在联系的文章之间建立双链，比如方法有明显关联，甚至需要互相对比的两个文章。
-
-或者一个文章的方法可能改进另一个文章方法的联系。但是这个功能是很难做到，仅仅依靠摘要Embedding的聚类是不够的，必须引入LLM API，但是这个调用很难处理，因为本身涉及到了 O(N^2) 的复杂度。
-
-#### 用户兴趣画像分析
-
-因为用户只有我自己，所有没有协同过滤等方法。我的兴趣很杂，我希望借助这套系统能够帮助我认识到我更深层次的兴趣点，不是说简单的对RL感兴趣，对医疗感兴趣，可能是更深层次一些的，比如对于量化加速感兴趣，对于于性能优化与加速感兴趣，等等吧，这些兴趣点可以是交叉的，各个方向的，我希望能发掘出来一些我自己意识不到的东西，帮我更好地认识我自己，但是这很困难，我暂时不知道怎么做。
+- **文章关联挖掘**：尝试以批处理 LLM 判断论文间关系，受限于 $O(N^2)$ 复杂度与算力尚未实施。
+- **兴趣画像深化**：希望挖掘跨领域兴趣主题，但缺乏合适的反馈数据与算法验证。
 
 ## 新架构设计
 
-我的目标是，摆脱大量的Github Action依赖，将其变为一个本地运行的单例（当然，giscus摆脱不了Action依赖）
+### 目标原则
 
-我的本地部署目标是通过一个 docker （非docker compose）直接可以部署。
+1. **Local-first**：核心流水线在本地单例运行，云端仅作为备份与远程触发入口。
+2. **模块化**：以 Python 包形式重构，各模块有清晰输入输出契约，方便测试与复用。
+3. **数据分层**：元数据、嵌入、偏好、摘要分离存储，采用统一键（arXiv ID）连接。
+4. **可编排**：提供显式的调度与触发接口（本地 scheduler + 远程调用 API）。
+5. **易扩展**：支持新增嵌入模型、摘要模型、下游展示渠道。
 
-Embedding 应该以本地为主，云端用作备份同步，将meta data 与 Embedding 拆分，每个模型每隔年份而的Embedding数据单独保存在一个parquet数据中，以允许未来添加新的Embedding 模型，一定要充分的保留未来添加新模型的接口，例如如何在配置文件中定义这个模型Embedding 使用SentenceTransformer 还是vllm，embedding dim 等，不过或许每个模型单开一个python文件，通过继承特定class的形式是一个更灵活的拓展形式。对于meta data，我认为按规则切分开的csv或许是更好的选择。至于偏好数据，我觉得应该也要拆分出一个独立的数据，毕竟有偏好标注的论文很少，而我们完全可以使用arxiv id 作为主键，这很方便。
+### 模块划分与职责
 
-本地通过scheduler 来每日爬虫，获取metadata 后，自动依次触发Embedding。Embedding 结束之后，自动触发论文推荐pipeline。
+| 模块 | 职责 | 关键实现要点 |
+| ---- | ---- | ---- |
+| Ingestion Service | 调用 OAI-PMH/RSS，生成标准化元数据 CSV/Parquet | 重用 `fetch_arxiv_oai_by_date.py` 逻辑，封装为类 |
+| Embedding Service | 补齐/刷新多模型向量 | 使用本地 GPU，任务队列+批处理；保留 Hugging Face 上传插件 |
+| Recommendation Service | 训练/打分，输出候选列表 | 将 `fit_predict.py` 封装为对象，支持自定义采样批量 |
+| Summarization Orchestrator | 下载 PDF、调用 LLM、产出 JSONL/Markdown | 保持单次结构化产物生成流程，聚焦日志与失败告警 |
+| Publishing Adapter | Markdown→Astro/GitHub→Cloudflare，或 Notion API | 插件化输出端，支持多目标 |
+| Feedback Collector | 聚合 giscus/Notion/手动偏好 | 标准化成偏好事件流 |
+| Orchestrator API | 暴露 HTTP/CLI 接口统一触发流程 | 支持局域网访问与远程触发 |
 
-论文推荐pipeline 仍然优先使用latex2json 再转markdown，保留marker 的fallback。
+### 数据层设计
 
-但是摘要后的数据我不打算继续保存为单独的json文件，我认为可以使用按规则，比如年份+月份，拆分的jsonl 来保存，顺序可以按ArxivID 排序，以利于git的增量更新。不过csv也是一种很好的形式。
+- **元数据（metadata）**：按年份拆分的 CSV（可选 Parquet 以保留 schema），字段包含论文基础信息与数据版本号。
+- **嵌入（embeddings）**：每个模型 × 每个年份独立 Parquet，列格式 `[id, embedding: list[float32], stats]`（默认 `float16` 节省空间），允许并行新增模型。
+- **偏好（preferences）**：追加式 CSV/JSONL，记录事件时间、来源（giscus/notion/manual）。
+- **摘要（summaries）**：按 `year/month` 生成 JSONL，字段含 `paper_id、sections、model_meta`，方便 git diff。
+- **缓存（artifacts）**：PDF、LaTeX 中间件放入挂载卷，统一清理策略。
 
-当然，这种结构化数据的markdown格式化我认为还是可以使用jinja2，基于astro 和 github giscus 和 cloudflare page 的博客方案也可以保留，但是似乎notion + notion api 的非公开化方案也是一种选择，例如直接使用notion数据库，我甚至可以摆脱对giscus的依赖，所有摘要到的文章管理在一个Notion Database中。在notion中展示，推送，反馈，似乎比网页来的更加稳定。
+所有数据以 `data/` 顶级目录分类，Docker 挂载本地硬盘；云端定期同步（见备份策略）。
 
+### 配置管理策略
 
+- 提供一个根配置文件 `config.toml`，由 `BaseConfig`（Pydantic `BaseModel`）解析。
+- 按子模块继承，例如 `EmbeddingConfig`, `LLMConfig`, `SchedulerConfig`，均实现 `@classmethod from_toml(path: Path)`。
+- 在运行时通过简单的 `load_config()` 辅助函数向各服务注入 Pydantic 对象；如未来出现多进程/多租户需求，可再引入 `ConfigRegistry` 或依赖注入容器，但当前阶段保持简洁。
+- 配置变更通常低频，约定“修改后重启服务”，无需支持热加载，仅需启动时校验并输出有效配置快照。
+- 在参考仓库落地：
+	- `ArxivEmbedding` 中的模型列表由 `EmbeddingConfig` 管理，取代当前直接访问字典。
+	- `PaperDigest` 中的 LLM 参数、模板路径、采样阈值通过 `LLMConfig` 和 `PipelineConfig` 提供，脚本重构为 `uv run python -m paper_digest.cli summarize --config ./config.toml` 类似接口。
+
+### 运行编排与调度
+
+- **核心调度器**：使用 `APScheduler` 或 `Prefect` 在本地长驻进程中管理每日任务（爬虫→嵌入→推荐→摘要→发布）。
+- **任务隔离**：各阶段以队列（如 `redis-queue` 或本地 `sqlite` 任务表）串联，避免长任务阻塞。
+- **锁机制**：在嵌入/推荐阶段添加文件锁或数据库锁，防止远程触发与定时任务并发时重复写入。
+- **观察性**：统一日志（`structlog`/`loguru`）+ Prometheus/Grafana（可选）监控耗时、成功率。
+
+### 外部触发接口与远程控制
+
+- **本地控制台（优先级最高）**：实现一个轻量网页/桌面界面，展示当前配置快照、实时日志、最近任务状态，并提供“手动触发推荐流水线”按钮，支持自定义时间范围与目标数量。
+- **HTTP API 网关（中期）**：基于 FastAPI/Flask 暴露 `/run-pipeline`、`/run-embedding`、`/status` 等接口，供本地控制台或 CLI 调用，后续再拓展鉴权与参数校验。
+- **远程访问（远期）**：
+  - 局域网访问：可选接入 `tailscale`/`zerotier` 等虚拟局域网，让移动设备访问控制台。
+  - 公网访问：如需通过 1c1g VPS 做入口，再评估 Cloudflare Tunnel/Tailscale Funnel 等方案，现阶段仅保留规划。
+  - GitHub Action 触发：保留“Action 调用 HTTP API”思路，但排在远期，实现前需确认安全策略。
+- **Notion 集成设想（远期）**：保留“Notion 页面触发流水线”的想法，等基础控制台稳定后再评估可行性。
+
+### 内容生产与发布
+
+- **Markdown 渲染**：继续使用 Jinja2 模板，但封装成 `ContentRenderer` 类，支持 Astro 网站与 Notion 两种输出模式。
+- **LaTeX→Markdown 流程**：保留 `latex2json` 主路，`marker` 作为 fallback，确保日志清晰即可，短期内不额外实现复杂的回滚机制。
+- **版本化存储**：Markdown/JSONL 结果写入 `output/`，以 Git 提交或 Notion API 同步方式对外发布；Cloudflare Pages 仍由 GitHub Action 部署。
+
+### 反馈采集与偏好回写
+
+- **giscus**：保留现有讨论区采集脚本，迁移为 `FeedbackCollector` 子模块，解析 emoji → 偏好事件。
+- **Notion**：若切换到 Notion 展示，直接读取数据库中的“打分”列生成偏好事件。
+- **手动导入**：保留 Zotero → CSV 转换脚本，接入统一偏好写入接口。
+
+### 备份与同步策略
+
+- **主存储**：本地 `data/` 目录（挂载卷）。
+- **远程备份**：
+	- 元数据与嵌入：按模型/年份将 Parquet 推送至 Hugging Face（继续使用，但降低频率，例如每日/每周一次）。
+	- 摘要与偏好：压缩打包上传至私有对象存储或 GitHub Release。
+	- 配置备份：`config.toml` 与偏好 CSV 自动同步到私有 git 分支。
+
+### 迁移步骤（建议）
+
+1. 建立 Python 包骨架（`papersys/`），抽取 `ArxivEmbedding` 与 `PaperDigest` 中的可复用逻辑。
+2. 实现 Pydantic 配置体系，并替换脚本中的直接字典访问。
+3. 引入调度器与 HTTP API，完成本地单例 PoC。
+4. 将生成的数据目录整理为新结构，编写迁移脚本从旧 Parquet/JSON 拆分。
+5. 配置云端备份与 GitHub Action 触发入口。
+6. 渐进式替换旧流水线，期间保留旧 Action 作为 fallback。
+
+### 风险与缓解
+
+| 风险 | 描述 | 缓解策略 |
+| ---- | ---- | ---- |
+| 单点故障 | 本地单例服务宕机导致流程停摆 | 提供手动触发脚本 + 云端 Action 作为备用；关键数据实时备份 |
+| 算力瓶颈 | 本地 GPU 资源不足以处理大批量嵌入 | 支持分批排程、夜间运行；必要时回退到云端 CPU 批处理 |
+| 配置错误 | Pydantic 配置校验不当导致任务失败 | 编写单元测试/CI 校验配置 schema，提供默认值与示例 |
+| 网络不稳定 | 本地→Hugging Face/Notion 同步中断 | 增量同步 + 重试队列，失败任务记录日志并可重放 |
+| API 成本 | 多模型摘要导致费用不可控 | 在配置中加入预算阈值，超限自动切换到成本更低模型 |
+
+### 后续验证指标
+
+- 每日流水线从抓取到发布的总耗时 < 2 小时。
+- 嵌入补齐延迟 < 30 分钟，并有失败重试记录。
+- 每周自动生成的备份包可在独立环境恢复。
+- 远程触发 API 接口含审计日志，能追溯触发者、参数、执行结果。
+- 配置文件修改后重启并通过自检 < 5 分钟。
 
 
 
