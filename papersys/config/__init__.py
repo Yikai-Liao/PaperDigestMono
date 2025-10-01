@@ -12,6 +12,7 @@ from .recommend import (
     RecommendPipelineConfig,
     TrainerConfig,
 )
+from .scheduler import SchedulerConfig, SchedulerJobConfig
 from .summary import PdfConfig, SummaryPipelineConfig
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "PredictConfig",
     "RecommendPipelineConfig",
     "TrainerConfig",
+    "SchedulerConfig",
+    "SchedulerJobConfig",
     "PdfConfig",
     "SummaryPipelineConfig",
 ]

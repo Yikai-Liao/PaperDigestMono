@@ -108,3 +108,44 @@
 
 ### Git 基线
 - 当前改动尚未提交，与 T6 相关改动合并后统一处理。
+
+## 9. T8 开发规划（2025-10-02）
+
+### 目标
+- 引入调度服务与本地 Web 控制台，为推荐/摘要管线提供定时运行能力与状态可视化。
+- 使用 APScheduler 管理周期作业，FastAPI 提供健康检查与手动触发接口。
+
+### 拆解任务
+1. **配置层更新**：新增 `SchedulerConfig` 与作业粒度配置类，扩展 `AppConfig`、示例 TOML 及相关单测。
+2. **调度服务实现**：在 `papersys/scheduler/service.py` 中封装 APScheduler，支持注册推荐/摘要作业、手动触发、优雅关闭。
+3. **Web 控制台骨架**：构建 `papersys/web/app.py`（FastAPI），提供 `/health`、`/jobs`、`/scheduler/run/{job_id}` 等接口，并在 CLI `serve` 子命令中串联。
+4. **测试与验证**：补充调度与 Web 层单测，增强 CLI 测试覆盖 `serve --dry-run`，全量运行 `uv run --no-progress pytest tests/{config,recommend,summary,scheduler,web}/`。
+
+### 风险与缓解
+- **依赖增多**：FastAPI/APScheduler 引入体积较大，需确认无冗余；通过 `uv add --no-progress` 统一管理。
+- **调度线程副作用**：单测中采用暂停启动与显式 shutdown，确保不会遗留后台线程。
+- **作业执行失败**：dry-run 默认仅校验管线，实际运行另行配置；为非 dry-run 模式补充日志与错误传播。
+
+### 交付准则
+- CLI `serve --dry-run` 能列出所有已配置作业并成功退出。
+- Web 控制台单测验证健康检查与作业触发均返回成功响应。
+- devlog/architecture 文档同步调度架构要点（T8 完成后更新执行记录）。
+
+## 10. T8 阶段进展记录（2025-10-02 晚间）
+
+### 今日交付
+- **配置层扩展**：新增 `papersys/config/scheduler.py`（`SchedulerConfig`/`SchedulerJobConfig`）并接入 `AppConfig`；同步导出入口。
+- **示例配置更新**：`config/example.toml` 填充调度总线、推荐/摘要作业默认参数，帮助后续 CLI/服务读取。
+- **测试覆盖**：`tests/config/test_load_config.py` 新增调度字段断言；`uv run pytest tests/config/test_load_config.py` 与 `uv run pytest tests` 均通过。
+- **pytest 配置收敛**：在 `pyproject.toml` 配置 `addopts = "--ignore=reference"`，默认排除参考目录，避免误触无关测试。
+- **依赖同步**：为主仓添加调度与参考依赖（`apscheduler`、`fastapi`、`uvicorn`、`toml`、`filelock`、`huggingface-hub[hf-xet]`、`latex2json`、`openai`、`timeout-decorator` 等），确保后续模块和必要示例可运行。
+
+### 遇到的问题 & 处理
+- 全量 `pytest` 会触发 `reference/` 目录缺失配置导致失败 → 通过 pytest 默认忽略机制解决。
+- `reference/PaperDigestAction` 中老代码依赖第三方 `toml` 包 → 按原实现保留 `toml` 并安装依赖，避免改动历史逻辑。
+
+### 明日待办
+- 实现 `SchedulerService`（注册推荐/摘要作业、dry-run 验证、优雅关闭）。
+- 构建 FastAPI 控制台骨架与 `/health`、`/jobs`、手动触发接口。
+- CLI 新增 `serve` 子命令并编写单测，覆盖 dry-run 行为。
+- 补充调度/控制台文档片段至 `devdoc/architecture.md`。

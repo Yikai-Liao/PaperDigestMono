@@ -59,6 +59,14 @@ def test_app_config_example_file() -> None:
     assert cfg.summary_pipeline.pdf.model == "deepseek-r1"
     assert cfg.summary_pipeline.pdf.language == "zh"
 
+    # Scheduler configuration
+    assert cfg.scheduler is not None
+    assert cfg.scheduler.timezone == "Asia/Shanghai"
+    assert cfg.scheduler.summary is not None
+    assert cfg.scheduler.summary.interval_minutes == 120
+    assert cfg.scheduler.recommendation is not None
+    assert cfg.scheduler.recommendation.dry_run is False
+
     # LLM configurations
     assert len(cfg.llms) == 2
     deepseek = next((llm for llm in cfg.llms if llm.alias == "deepseek-r1"), None)

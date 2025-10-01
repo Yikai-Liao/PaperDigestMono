@@ -6,6 +6,22 @@ scheduler_enabled = true
 embedding_models = ["jasper_v1"]
 logging_level = "INFO"
 
+# Scheduler configuration
+[scheduler]
+timezone = "Asia/Shanghai"
+
+[scheduler.summary]
+enabled = true
+interval_minutes = 120
+dry_run = true
+max_instances = 1
+
+[scheduler.recommendation]
+enabled = true
+interval_minutes = 180
+dry_run = false
+max_instances = 1
+
 # Recommendation pipeline configuration
 [recommend_pipeline.data]
 categories = ["cs.CL", "cs.CV", "cs.AI", "cs.LG", "stat.ML"]

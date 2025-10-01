@@ -9,6 +9,7 @@ from pydantic import Field
 from papersys.config.base import BaseConfig
 from papersys.config.llm import LLMConfig
 from papersys.config.recommend import RecommendPipelineConfig
+from papersys.config.scheduler import SchedulerConfig
 from papersys.config.summary import SummaryPipelineConfig
 
 
@@ -24,6 +25,7 @@ class AppConfig(BaseConfig):
     # New pipeline configurations
     recommend_pipeline: RecommendPipelineConfig | None = None
     summary_pipeline: SummaryPipelineConfig | None = None
+    scheduler: SchedulerConfig | None = Field(None, description="Scheduler configuration")
     llms: list[LLMConfig] = Field(default_factory=list, description="Available LLM configurations")
 
 
