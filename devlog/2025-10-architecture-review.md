@@ -114,8 +114,8 @@
 | --- | --- | --- | --- | --- |
 | T1 | 更新本开发日志，列出后续任务及验收策略 | 本文新增任务分解与验收表 | Diff 展示该表；自查确认任务覆盖迁移步骤；与最新的 `devdoc/architecture.md` 一致 | ✅ 2025-10-01 |
 | T2 | 搭建 `papersys` 包骨架（含 `config`、`ingestion` 占位模块） | `papersys/` 目录与最小 `__init__`、模块文件 | `uv run python -m compileall papersys` 通过；目录结构与架构设计一致 | ✅ 2025-10-01 |
-| T3 | 实现 Pydantic `BaseConfig` 与 `load_config()` 工具，并提供样例配置 | `papersys/config/base.py`、`config/example.toml`、最小测试 | `uv run python -m pytest tests/config/test_load_config.py` 通过；示例配置加载成功 | ⏳ 待办 |
-| T4 | 打通最小 Orchestrator CLI，加载配置并输出各模块状态 | `papersys/cli.py` 及脚本入口 | `uv run python -m papersys.cli --dry-run` 成功打印模块概览 | ⏳ 待办 |
+| T3 | 实现 Pydantic `BaseConfig` 与 `load_config()` 工具，并提供样例配置 | `papersys/config/base.py`、`config/example.toml`、最小测试 | `uv run python -m pytest tests/config/test_load_config.py` 通过；示例配置加载成功 | ✅ 2025-10-01 |
+| T4 | 打通最小 Orchestrator CLI，加载配置并输出各模块状态 | `papersys/cli.py` 及脚本入口 | `uv run python -m papersys.cli --dry-run` 成功打印模块概览 | ✅ 2025-10-01 |
 
 ### 标准化验收方式
 
@@ -128,3 +128,6 @@
 
 - 2025-10-01 目前仓库基线：`b327159b8aa6fe3a7570ee9ec4fb7c7b2d482896`（T2 启动前）
 - 2025-10-01 T2 完成：工作区相对 `b327159b8aa6fe3a7570ee9ec4fb7c7b2d482896` 新增 `papersys/` 骨架，尚未提交
+- 2025-10-01 T3 完成：新增 `pyproject.toml`、`uv.lock`、`config/example.toml`、`papersys/config/base.py`、`papersys/config/app.py`、测试目录等；调整 `papersys/config/__init__.py`
+- 2025-10-01 T4 完成：新增 `papersys/cli.py`，通过 `uv run --no-progress python -m papersys.cli --dry-run` 验证
+- 2025-10-01 提交记录：`a40968659d800cd226050e4a253975f10e75aa8d`（包含 T2-T4 变更）

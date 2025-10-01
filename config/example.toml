@@ -1,0 +1,6 @@
+# Minimal runtime configuration for papersys
+
+data_root = "./data"
+scheduler_enabled = true
+embedding_models = ["jasper_v1"]
+logging_level = "INFO"
