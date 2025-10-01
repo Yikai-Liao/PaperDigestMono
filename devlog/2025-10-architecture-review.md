@@ -107,3 +107,24 @@
 ---
 
 > **下一步**：待用户确认上述开发方案后，开始更新 `devdoc/architecture.md`。如遇执行偏差，将在本文件追加“反思”记录并同步至仓库经验教训文档。
+
+## 十、后续阶段任务拆分（2025-10-01）
+
+| ID | TODO | 交付物 | 验收标准 | 状态 |
+| --- | --- | --- | --- | --- |
+| T1 | 更新本开发日志，列出后续任务及验收策略 | 本文新增任务分解与验收表 | Diff 展示该表；自查确认任务覆盖迁移步骤；与最新的 `devdoc/architecture.md` 一致 | ✅ 2025-10-01 |
+| T2 | 搭建 `papersys` 包骨架（含 `config`、`ingestion` 占位模块） | `papersys/` 目录与最小 `__init__`、模块文件 | `uv run python -m compileall papersys` 通过；目录结构与架构设计一致 | ✅ 2025-10-01 |
+| T3 | 实现 Pydantic `BaseConfig` 与 `load_config()` 工具，并提供样例配置 | `papersys/config/base.py`、`config/example.toml`、最小测试 | `uv run python -m pytest tests/config/test_load_config.py` 通过；示例配置加载成功 | ⏳ 待办 |
+| T4 | 打通最小 Orchestrator CLI，加载配置并输出各模块状态 | `papersys/cli.py` 及脚本入口 | `uv run python -m papersys.cli --dry-run` 成功打印模块概览 | ⏳ 待办 |
+
+### 标准化验收方式
+
+1. **代码验证**：优先使用 `uv run` 运行编译/测试命令，保证符合仓库环境约束。
+2. **文档核对**：所有新的结构或流程需在相关文档（`devdoc/architecture.md` 或 README）中更新说明。
+3. **日志记录**：每个任务完成后在本日志的任务表更新状态，如遇挫折需在本文件追加“反思”段落并总结到经验教训文档。
+4. **回滚准备**：若新模块引入影响现有流程，需保留原有脚本路径（或提供 fallback 脚本）以便快速回退。
+
+### Git 索引记录
+
+- 2025-10-01 目前仓库基线：`b327159b8aa6fe3a7570ee9ec4fb7c7b2d482896`（T2 启动前）
+- 2025-10-01 T2 完成：工作区相对 `b327159b8aa6fe3a7570ee9ec4fb7c7b2d482896` 新增 `papersys/` 骨架，尚未提交
