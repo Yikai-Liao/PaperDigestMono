@@ -116,6 +116,29 @@
 | T2 | 搭建 `papersys` 包骨架（含 `config`、`ingestion` 占位模块） | `papersys/` 目录与最小 `__init__`、模块文件 | `uv run python -m compileall papersys` 通过；目录结构与架构设计一致 | ✅ 2025-10-01 |
 | T3 | 实现 Pydantic `BaseConfig` 与 `load_config()` 工具，并提供样例配置 | `papersys/config/base.py`、`config/example.toml`、最小测试 | `uv run python -m pytest tests/config/test_load_config.py` 通过；示例配置加载成功 | ✅ 2025-10-01 |
 | T4 | 打通最小 Orchestrator CLI，加载配置并输出各模块状态 | `papersys/cli.py` 及脚本入口 | `uv run python -m papersys.cli --dry-run` 成功打印模块概览 | ✅ 2025-10-01 |
+| T5 | 迁移推荐/摘要/LLM 配置模型，扩展示例配置 | `papersys/config/{recommend,summary,llm}.py`；更新 `config/example.toml` 及测试 | `uv run --no-progress pytest tests/config/` 全通过；CLI `--dry-run` 显示完整配置层级 | ✅ 2025-10-02 |
+
+### 标准化验收方式
+
+1. **代码验证**：优先使用 `uv run` 运行编译/测试命令，保证符合仓库环境约束。
+2. **文档核对**：所有新的结构或流程需在相关文档（`devdoc/architecture.md` 或 README）中更新说明。
+3. **日志记录**：每个任务完成后在本日志的任务表更新状态，如遇挫折需在本文件追加"反思"段落并总结到经验教训文档。
+4. **回滚准备**：若新模块引入影响现有流程，需保留原有脚本路径（或提供 fallback 脚本）以便快速回退。
+
+### Git 索引记录
+
+- 2025-10-01 目前仓库基线：`b327159b8aa6fe3a7570ee9ec4fb7c7b2d482896`（T2 启动前）
+- 2025-10-01 T2 完成：工作区相对 `b327159b8aa6fe3a7570ee9ec4fb7c7b2d482896` 新增 `papersys/` 骨架，尚未提交
+- 2025-10-01 T3 完成：新增 `pyproject.toml`、`uv.lock`、`config/example.toml`、`papersys/config/base.py`、`papersys/config/app.py`、测试目录等；调整 `papersys/config/__init__.py`
+- 2025-10-01 T4 完成：新增 `papersys/cli.py`，通过 `uv run --no-progress python -m papersys.cli --dry-run` 验证
+- 2025-10-01 提交记录：`9f7260b3ab03ee846511ba13475caae4dc367b46`（包含 T2-T4 变更）
+- 2025-10-02 T5 完成：新增配置模型（llm/recommend/summary）、扩充测试（12 测试通过）、更新 CLI 与 architecture.md
+- 2025-10-02 T5 提交记录：`2fd9da3`（已推送远程）
+
+### 后续任务索引
+
+更长周期的任务规划（T6-T10）已转移至独立开发计划：`devlog/2025-10-config-refactor-plan.md`。
+
 
 ### 标准化验收方式
 
