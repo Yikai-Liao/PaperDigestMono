@@ -21,6 +21,25 @@ enabled = true
 name = "summary-pipeline"
 cron = "0 6 * * *" # Daily at 6 AM local time
 
+[scheduler.backup_job]
+enabled = true
+name = "nightly-backup"
+cron = "30 3 * * *" # Daily at 3:30 AM local time
+
+# Backup configuration
+[backup]
+enabled = true
+name = "nightly-backup"
+sources = ["./config", "./devlog", "./papersys"]
+exclude = ["*.pyc", "__pycache__/*"]
+staging_dir = "./.tmp-backups"
+retention = 5
+
+[backup.destination]
+storage = "local"
+path = "./backups"
+
+
 # Recommendation pipeline configuration
 [recommend_pipeline.data]
 categories = ["cs.CL", "cs.CV", "cs.AI", "cs.LG", "stat.ML"]

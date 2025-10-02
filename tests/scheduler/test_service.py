@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from loguru import logger
 
-from papersys.config import AppConfig, SchedulerConfig, SchedulerJobConfig
+from papersys.config import AppConfig, BackupConfig, SchedulerConfig, SchedulerJobConfig
 from papersys.scheduler import SchedulerService
 
 
@@ -44,6 +44,24 @@ def test_scheduler_service_setup_jobs(mock_config: AppConfig) -> None:
     assert job is not None
     assert job.id == "recommend"
     assert "next_run_time" in service.get_metrics_snapshot()["recommend"]
+
+
+def test_backup_job_registration() -> None:
+    config = AppConfig(
+        scheduler=SchedulerConfig(
+            enabled=True,
+            timezone="UTC",
+            backup_job=SchedulerJobConfig(enabled=True, name="auto-backup", cron="0 3 * * *"),
+        ),
+        backup=BackupConfig(enabled=False),
+    )
+    service = SchedulerService(config)
+    service.setup_jobs()
+
+    job = service.scheduler.get_job("backup")
+    assert job is not None
+    assert job.name == "auto-backup"
+    assert "backup" in service.get_metrics_snapshot()
 
 
 def test_scheduler_service_dry_run(mock_config: AppConfig, capsys: pytest.CaptureFixture[str]) -> None:
