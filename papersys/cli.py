@@ -60,6 +60,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Set up the scheduler and report status without running the server",
     )
 
+    ingest_parser = subparsers.add_parser("ingest", help="Fetch arXiv metadata via OAI-PMH")
+    ingest_parser.add_argument(
+        "--from",
+        dest="from_date",
+        type=str,
+        help="Start date in YYYY-MM-DD format (defaults to config.ingestion.start_date)",
+    )
+    ingest_parser.add_argument(
+        "--to",
+        dest="until_date",
+        type=str,
+        help="End date in YYYY-MM-DD format (defaults to config.ingestion.end_date)",
+    )
+    ingest_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Maximum number of records to fetch (for testing)",
+    )
+    ingest_parser.add_argument(
+        "--deduplicate",
+        action="store_true",
+        help="Deduplicate CSV files after ingestion",
+    )
+
     config_parser = subparsers.add_parser("config", help="Validate and document configuration files")
     config_subparsers = config_parser.add_subparsers(dest="config_command")
     if hasattr(config_subparsers, "required"):
@@ -110,6 +134,33 @@ def main(argv: list[str] | None = None) -> int:
         else:
             logger.info("Status command currently supports --dry-run only; showing status.")
             _report_system_status(config)
+        return 0
+
+    if command == "ingest":
+        if not config.ingestion or not config.ingestion.enabled:
+            logger.error("Ingestion is not enabled in the configuration")
+            return 1
+
+        from papersys.ingestion import IngestionService
+
+        service = IngestionService(config.ingestion)
+        from_date = getattr(args, "from_date", None)
+        until_date = getattr(args, "until_date", None)
+        limit = getattr(args, "limit", None)
+
+        logger.info("Starting ingestion: from={}, to={}, limit={}", from_date, until_date, limit)
+        fetched, saved = service.fetch_and_save(
+            from_date=from_date,
+            until_date=until_date,
+            limit=limit,
+        )
+        logger.info("Ingestion complete: fetched={}, saved={}", fetched, saved)
+
+        if getattr(args, "deduplicate", False):
+            logger.info("Deduplicating CSV files...")
+            removed = service.deduplicate_csv_files()
+            logger.info("Deduplicated {} records", removed)
+
         return 0
 
     if command == "summarize":

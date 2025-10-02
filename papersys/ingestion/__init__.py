@@ -1,8 +1,6 @@
-"""Ingestion service placeholders.
+"""Ingestion module for fetching and processing paper metadata."""
 
-Future ingestion pipelines will be implemented here.
-"""
+from papersys.ingestion.client import ArxivOAIClient, ArxivRecord
+from papersys.ingestion.service import IngestionService
 
-from __future__ import annotations
-
-__all__: list[str] = []
+__all__ = ["ArxivOAIClient", "ArxivRecord", "IngestionService"]
