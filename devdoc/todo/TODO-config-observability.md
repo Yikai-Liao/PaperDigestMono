@@ -5,10 +5,16 @@
 - Offer a CLI subcommand that reports config health, deprecated fields, and diff against example templates.
 
 ## Deliverables
-1. A new CLI command (e.g., `uv run python -m papersys.cli config check`) performing schema validation, default expansion, and friendly error messages.
-2. Optional `--explain` flag generating per-field documentation sourced from Pydantic model descriptions.
-3. Integration tests ensuring malformed configs raise actionable errors and valid configs succeed.
-4. Documentation update describing the command and sample outputs.
+1. ✅ A new CLI command (e.g., `uv run python -m papersys.cli config check`) performing schema validation, default expansion, and friendly error messages.
+2. ✅ Optional `--explain` flag generating per-field documentation sourced from Pydantic model descriptions.
+3. ✅ Integration tests ensuring malformed configs raise actionable errors and valid configs succeed.
+4. ✅ Documentation update describing the command and sample outputs.
+
+## Completion Notes
+- `papersys.cli config check` 基于 `papersys.config.inspector` 实现统一的校验与 JSON 输出，CI 可直接消费。
+- `config explain` 遍历模型层级并输出字段描述，用于快速核对新增配置。
+- `tests/cli/test_cli_config.py` 覆盖成功场景、缺失文件、校验异常与 explain 输出。
+- 文档新增“配置巡检工具（已落地）”小节，说明命令用途与告警策略。
 
 ## Constraints & Notes
 - Reuse existing Pydantic models; do not introduce new config parsers.

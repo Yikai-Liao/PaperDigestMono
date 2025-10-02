@@ -163,6 +163,13 @@
   - **用法**: `uv run python -m papersys.cli serve [--host <host>] [--port <port>]`。
   - **`--dry-run` 支持**: `serve --dry-run` 会加载配置、验证并列出将要调度的作业，但不会启动 Web 服务器或实际运行任何作业，便于快速调试。
 
+### 配置巡检工具（已落地）
+
+- **CLI 子命令**：`uv run --no-progress python -m papersys.cli config check` 读取指定 TOML 并返回结构化结果，可通过 `--format json` 输出机器可读格式。
+- **告警策略**：针对 `data_root`、`embedding_models`、缺失 `scheduler` 配置及空 `llms` 等历史遗留字段给出提示，帮助在迁移阶段发现配置缺口。
+- **字段说明**：`config explain` 子命令遍历 Pydantic 模型，输出字段层级、是否必填、默认值与描述，便于同步文档或检查新字段发布情况。
+- **脚本整合**：新工具复用 `load_config` 与现有模型，无需额外依赖，适合作为 CI 或 pre-commit 钩子。
+
 ### 内容生产与发布
 
 - **Markdown 渲染**：继续使用 Jinja2 模板，但封装成 `ContentRenderer` 类，支持 Astro 网站与 Notion 两种输出模式。
