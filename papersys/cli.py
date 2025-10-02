@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import uvicorn
 from loguru import logger
 
 from .config import AppConfig, load_config
+from .config.embedding import EmbeddingModelConfig
 from .config.inspector import check_config, explain_config
 from .recommend import RecommendationDataLoader
 from .scheduler import SchedulerService
@@ -139,160 +141,191 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(AppConfig, config_path)
 
     if command is None:
-        if args.dry_run:
-            _report_system_status(config)
+        return _handle_no_command(args, config)
+
+    handler = _COMMAND_HANDLERS.get(command)
+    if handler is None:
+        logger.warning("Unknown command: {}", command)
+        return 1
+
+    return handler(args, config, config_path)
+
+
+def _handle_no_command(args: argparse.Namespace, config: AppConfig) -> int:
+    if args.dry_run:
+        _report_system_status(config)
+        return 0
+    logger.warning("No command provided. Try 'status --dry-run' or 'summarize --dry-run'.")
+    return 0
+
+
+def _handle_status_command(args: argparse.Namespace, config: AppConfig, _: Path) -> int:
+    if getattr(args, "dry_run", False):
+        _report_system_status(config)
+        return 0
+
+    logger.info("Status command currently supports --dry-run only; showing status.")
+    _report_system_status(config)
+    return 0
+
+
+def _handle_ingest_command(args: argparse.Namespace, config: AppConfig, _: Path) -> int:
+    if not config.ingestion or not config.ingestion.enabled:
+        logger.error("Ingestion is not enabled in the configuration")
+        return 1
+
+    from papersys.ingestion import IngestionService
+
+    service = IngestionService(config.ingestion)
+    from_date = getattr(args, "from_date", None)
+    until_date = getattr(args, "until_date", None)
+    limit = getattr(args, "limit", None)
+
+    logger.info("Starting ingestion: from={}, to={}, limit={}", from_date, until_date, limit)
+    fetched, saved = service.fetch_and_save(
+        from_date=from_date,
+        until_date=until_date,
+        limit=limit,
+    )
+    logger.info("Ingestion complete: fetched={}, saved={}", fetched, saved)
+
+    if getattr(args, "deduplicate", False):
+        logger.info("Deduplicating CSV files...")
+        removed = service.deduplicate_csv_files()
+        logger.info("Deduplicated {} records", removed)
+
+    return 0
+
+
+def _handle_embed_command(args: argparse.Namespace, config: AppConfig, _: Path) -> int:
+    if not config.embedding or not config.embedding.enabled:
+        logger.error("Embedding is not enabled in the configuration")
+        return 1
+
+    from papersys.embedding import EmbeddingService
+
+    service = EmbeddingService(config.embedding)
+
+    model_config = _select_embedding_model(config, getattr(args, "model", None))
+    if model_config is None:
+        return 1
+
+    limit = getattr(args, "limit", None)
+
+    if not config.ingestion or not config.ingestion.output_dir:
+        logger.error("Ingestion output_dir not configured; cannot locate metadata CSV files")
+        return 1
+
+    metadata_dir = Path(config.ingestion.output_dir)
+
+    if getattr(args, "backlog", False):
+        backlog = service.detect_backlog(metadata_dir, model_config.alias)
+        if not backlog:
+            logger.info("No backlog found for model {}", model_config.alias)
             return 0
-        logger.warning("No command provided. Try 'status --dry-run' or 'summarize --dry-run'.")
+
+        logger.info("Processing {} files in backlog", len(backlog))
+        total_count = 0
+        for csv_path in backlog:
+            count, _ = service.generate_embeddings_for_csv(
+                csv_path,
+                model_config,
+                limit=limit,
+            )
+            total_count += count
+        logger.info("Generated {} embeddings total", total_count)
         return 0
 
-    if command == "status":
-        if getattr(args, "dry_run", False):
-            _report_system_status(config)
-        else:
-            logger.info("Status command currently supports --dry-run only; showing status.")
-            _report_system_status(config)
-        return 0
+    csv_files = list(metadata_dir.rglob("*.csv"))
+    if not csv_files:
+        logger.error("No CSV files found in {}", metadata_dir)
+        return 1
 
-    if command == "ingest":
-        if not config.ingestion or not config.ingestion.enabled:
-            logger.error("Ingestion is not enabled in the configuration")
-            return 1
-
-        from papersys.ingestion import IngestionService
-
-        service = IngestionService(config.ingestion)
-        from_date = getattr(args, "from_date", None)
-        until_date = getattr(args, "until_date", None)
-        limit = getattr(args, "limit", None)
-
-        logger.info("Starting ingestion: from={}, to={}, limit={}", from_date, until_date, limit)
-        fetched, saved = service.fetch_and_save(
-            from_date=from_date,
-            until_date=until_date,
+    logger.info("Found {} CSV files", len(csv_files))
+    total_count = 0
+    for csv_path in csv_files:
+        count, _ = service.generate_embeddings_for_csv(
+            csv_path,
+            model_config,
             limit=limit,
         )
-        logger.info("Ingestion complete: fetched={}, saved={}", fetched, saved)
+        total_count += count
+    logger.info("Generated {} embeddings total", total_count)
+    return 0
 
-        if getattr(args, "deduplicate", False):
-            logger.info("Deduplicating CSV files...")
-            removed = service.deduplicate_csv_files()
-            logger.info("Deduplicated {} records", removed)
 
+def _handle_summarize_command(args: argparse.Namespace, config: AppConfig, config_path: Path) -> int:
+    base_path = config.data_root or config_path.parent
+    try:
+        pipeline = SummaryPipeline(config, base_path=base_path)
+    except ValueError as exc:
+        logger.error("Cannot initialise summary pipeline: {}", exc)
+        return 1
+
+    if getattr(args, "dry_run", False):
+        pipeline.run([], dry_run=True)
         return 0
 
-    if command == "embed":
-        if not config.embedding or not config.embedding.enabled:
-            logger.error("Embedding is not enabled in the configuration")
-            return 1
+    logger.warning("Summary execution requires input data which is not wired yet. Use --dry-run for checks.")
+    return 0
 
-        from papersys.embedding import EmbeddingService
 
-        service = EmbeddingService(config.embedding)
-        
-        # Select model
-        model_alias = getattr(args, "model", None)
-        if model_alias:
-            model_config = next(
-                (m for m in config.embedding.models if m.alias == model_alias),
-                None,
-            )
-            if not model_config:
-                logger.error("Model {} not found in configuration", model_alias)
-                return 1
-        else:
-            # Use first model
-            if not config.embedding.models:
-                logger.error("No embedding models configured")
-                return 1
-            model_config = config.embedding.models[0]
-            logger.info("Using default model: {}", model_config.alias)
+def _handle_serve_command(args: argparse.Namespace, config: AppConfig, _: Path) -> int:
+    scheduler_service = SchedulerService(config, dry_run=args.dry_run)
+    scheduler_service.setup_jobs()
 
-        limit = getattr(args, "limit", None)
-        
-        # Determine metadata directory
-        if not config.ingestion or not config.ingestion.output_dir:
-            logger.error("Ingestion output_dir not configured; cannot locate metadata CSV files")
-            return 1
-        
-        metadata_dir = Path(config.ingestion.output_dir)
-        
-        if getattr(args, "backlog", False):
-            # Process backlog
-            backlog = service.detect_backlog(metadata_dir, model_config.alias)
-            if not backlog:
-                logger.info("No backlog found for model {}", model_config.alias)
-                return 0
-            
-            logger.info("Processing {} files in backlog", len(backlog))
-            total_count = 0
-            for csv_path in backlog:
-                count, output_path = service.generate_embeddings_for_csv(
-                    csv_path,
-                    model_config,
-                    limit=limit,
-                )
-                total_count += count
-            logger.info("Generated {} embeddings total", total_count)
-        else:
-            # Process all CSV files
-            csv_files = list(metadata_dir.rglob("*.csv"))
-            if not csv_files:
-                logger.error("No CSV files found in {}", metadata_dir)
-                return 1
-            
-            logger.info("Found {} CSV files", len(csv_files))
-            total_count = 0
-            for csv_path in csv_files:
-                count, output_path = service.generate_embeddings_for_csv(
-                    csv_path,
-                    model_config,
-                    limit=limit,
-                )
-                total_count += count
-            logger.info("Generated {} embeddings total", total_count)
-
+    if args.dry_run:
+        logger.info("[Dry Run] Server will not be started.")
         return 0
 
-    if command == "summarize":
-        base_path = config.data_root or config_path.parent
-        try:
-            pipeline = SummaryPipeline(config, base_path=base_path)
-        except ValueError as exc:
-            logger.error("Cannot initialise summary pipeline: {}", exc)
-            return 1
+    app = create_app(scheduler_service)
 
-        if getattr(args, "dry_run", False):
-            pipeline.run([], dry_run=True)
-            return 0
+    @app.on_event("startup")
+    async def startup_event() -> None:
+        logger.info("Application startup...")
+        scheduler_service.start()
 
-        logger.warning("Summary execution requires input data which is not wired yet. Use --dry-run for checks.")
-        return 0
+    @app.on_event("shutdown")
+    async def shutdown_event() -> None:
+        logger.info("Application shutdown...")
+        scheduler_service.shutdown()
 
-    if command == "serve":
-        scheduler_service = SchedulerService(config, dry_run=args.dry_run)
-        scheduler_service.setup_jobs()
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
 
-        if args.dry_run:
-            logger.info("[Dry Run] Server will not be started.")
-            return 0
 
-        app = create_app(scheduler_service)
+def _select_embedding_model(
+    config: AppConfig, model_alias: str | None
+) -> EmbeddingModelConfig | None:
+    if model_alias:
+        model_config = next(
+            (m for m in config.embedding.models if m.alias == model_alias),
+            None,
+        )
+        if not model_config:
+            logger.error("Model {} not found in configuration", model_alias)
+            return None
+        return model_config
 
-        @app.on_event("startup")
-        async def startup_event():
-            logger.info("Application startup...")
-            scheduler_service.start()
+    if not config.embedding.models:
+        logger.error("No embedding models configured")
+        return None
 
-        @app.on_event("shutdown")
-        async def shutdown_event():
-            logger.info("Application shutdown...")
-            scheduler_service.shutdown()
+    model_config = config.embedding.models[0]
+    logger.info("Using default model: {}", model_config.alias)
+    return model_config
 
-        uvicorn.run(app, host=args.host, port=args.port)
-        return 0
 
-    logger.warning("Unknown command: {}", command)
-    return 1
+COMMAND_HANDLER = Callable[[argparse.Namespace, AppConfig, Path], int]
+
+
+_COMMAND_HANDLERS: dict[str, COMMAND_HANDLER] = {
+    "status": _handle_status_command,
+    "ingest": _handle_ingest_command,
+    "embed": _handle_embed_command,
+    "summarize": _handle_summarize_command,
+    "serve": _handle_serve_command,
+}
 
 
 def _handle_config_command(args: argparse.Namespace, config_path: Path) -> int:
