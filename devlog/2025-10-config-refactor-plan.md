@@ -18,7 +18,7 @@
 | T5 | 迁移推荐/摘要/LLM 配置模型，扩展示例配置 | `papersys/config/recommend.py`、`summary.py`、`llm.py` 等；更新 `config/example.toml`；扩充测试 | `uv run --no-progress pytest tests/config/test_load_config.py` 通过；文档同步说明配置层级 | ✅ |
 | T6 | 封装推荐管线模块（数据加载、训练、预测） | `papersys/recommend/*.py`；最小数据 fixture & 单测 | `uv run --no-progress pytest tests/recommend/test_trainer.py` 等通过；CLI 能输出推荐模块状态 | ✅ |
 | T7 | 构建摘要流水线骨架（PDF 获取、LLM 调用、渲染接口） | `papersys/summary/*.py`；异步/重试策略；日志接口 | `uv run --no-progress pytest tests/summary/test_pipeline.py`；CLI `summarize --dry-run` 输出模块状态 | ✅ |
-| T8 | 实现调度服务与本地控制台（FastAPI + APScheduler） | `papersys/scheduler/service.py`、`papersys/web/app.py`；CLI 新增 `serve` 子命令 | `uv run --no-progress python -m papersys.cli serve --dry-run` 成功输出监听信息；新增 API 健康检查测试 | |
+| T8 | 实现调度服务与本地控制台（FastAPI + APScheduler） | `papersys/scheduler/service.py`、`papersys/web/app.py`；CLI 新增 `serve` 子命令 | `uv run --no-progress python -m papersys.cli serve --dry-run` 成功输出监听信息；新增 API 健康检查测试 | ✅ |
 | T9 | 数据目录整理与迁移脚本 | `scripts/migrate_data.py`；支持 `--dry-run`；更新文档 | 在临时目录执行脚本输出目标结构；脚本测试通过 | |
 | T10 | 集成测试：凑齐"抓取→嵌入→推荐→摘要→输出" 验证链路 | `tests/system/test_pipeline.py`；CLI `pipeline --dry-run` | `uv run --no-progress pytest tests/system/test_pipeline.py` 通过；命令正确串联模块 | |
 
@@ -149,3 +149,28 @@
 - 构建 FastAPI 控制台骨架与 `/health`、`/jobs`、手动触发接口。
 - CLI 新增 `serve` 子命令并编写单测，覆盖 dry-run 行为。
 - 补充调度/控制台文档片段至 `devdoc/architecture.md`。
+
+---
+
+## 11. T8 执行记录（2025-10-02 夜间）
+
+### 交付物
+- **SchedulerService (`papersys/scheduler/service.py`)**：基于 `APScheduler` 的调度服务，支持按 `cron` 表达式注册作业，遵循配置时区；提供作业清单、dry-run 校验以及手动触发接口。
+- **FastAPI Web 应用 (`papersys/web/app.py`)**：实现 `/health`、`/jobs`、`/scheduler/run/{job_id}` 三个端点，并改用 `SchedulerService` 的 helper 方法保证行为一致。
+- **CLI `serve` 子命令 (`papersys/cli.py`)**：串联配置加载、调度器初始化与 FastAPI 服务启动，`--dry-run` 下只校验作业不启动服务。
+- **配置与示例**：
+  - `papersys/config/scheduler.py` 现支持 `enabled`、`timezone`、`cron` 字段（兼容旧别名），并在模型层固定默认值。
+  - `config/example.toml` 更新为示例化时区及推荐/摘要作业的 cron 表达式。
+- **测试补齐**：
+  - `tests/scheduler/test_service.py` 新增对 `trigger_job()` 的覆盖，验证手动触发会追加一次性作业。
+  - `tests/web/test_app.py` 与 `tests/cli/test_cli_serve.py` 调整断言，匹配新的响应与日志。
+
+### 验收结果
+- `uv run pytest`（默认忽略 reference）通过 28 项测试，覆盖 config/scheduler/web/cli 模块。
+- `uv run python -m papersys.cli --config config/example.toml serve --dry-run`：输出调度时区、作业注册信息，并在 dry-run 模式下安全退出。
+- FastAPI TestClient 覆盖 `/jobs` 与手动触发 API，响应体含最新字段。
+
+### 遇到的问题 & 处理
+- **cron 解析误差**：分词解析导致分钟/小时错位 → 改用 `CronTrigger.from_crontab`，并显式记录时区。
+- **手动触发无效果**：`job.modify(next_run_time=None)` 对未运行调度器无效 → 新增 `trigger_job()`，通过一次性任务实现立即执行。
+- **配置字段漂移**：示例与模型字段不一致 → 统一改为 `cron` + `timezone`，并在测试中断言。

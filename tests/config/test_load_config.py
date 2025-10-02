@@ -61,11 +61,13 @@ def test_app_config_example_file() -> None:
 
     # Scheduler configuration
     assert cfg.scheduler is not None
+    assert cfg.scheduler.enabled is True
     assert cfg.scheduler.timezone == "Asia/Shanghai"
-    assert cfg.scheduler.summary is not None
-    assert cfg.scheduler.summary.interval_minutes == 120
-    assert cfg.scheduler.recommendation is not None
-    assert cfg.scheduler.recommendation.dry_run is False
+    assert cfg.scheduler.recommend_job is not None
+    assert cfg.scheduler.recommend_job.name == "recommendation-pipeline"
+    assert cfg.scheduler.recommend_job.cron == "0 5 * * *"
+    assert cfg.scheduler.summary_job is not None
+    assert cfg.scheduler.summary_job.cron == "0 6 * * *"
 
     # LLM configurations
     assert len(cfg.llms) == 2
