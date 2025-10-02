@@ -17,6 +17,7 @@ from .recommend import (
 )
 from .scheduler import SchedulerConfig, SchedulerJobConfig
 from .summary import PdfConfig, SummaryPipelineConfig
+from .utils import resolve_env_reference
 
 __all__ = [
     "BaseConfig",
@@ -37,4 +38,5 @@ __all__ = [
     "SchedulerJobConfig",
     "PdfConfig",
     "SummaryPipelineConfig",
+    "resolve_env_reference",
 ]

@@ -37,7 +37,6 @@ api_key = "env:DEEPSEEK_API_KEY"
 temperature = 0.1
 top_p = 0.9
 num_workers = 1
-native_json_schema = false
 """
     config_file = tmp_path / "config.toml"
     config_file.write_text(config_text)

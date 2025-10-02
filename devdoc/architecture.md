@@ -159,7 +159,7 @@ data/
 当前在 `papersys/config/` 下已实现以下配置模型（严格 Pydantic 验证，`extra="forbid"` + `frozen=True`）：
 
 - **`base.py`**：`BaseConfig` 基类与 `load_config` 辅助函数，统一 TOML 读取逻辑。
-- **`llm.py`**：`LLMConfig` 定义单个 LLM 端点（alias、name、base_url、api_key、temperature、top_p、num_workers、reasoning_effort、native_json_schema）。
+- **`llm.py`**：`LLMConfig` 定义单个 LLM 端点（alias、name、base_url、api_key、temperature、top_p、num_workers、reasoning_effort）。
 - **`recommend.py`**：
   - `LogisticRegressionConfig`：C、max_iter。
   - `TrainerConfig`：seed、bg_sample_rate、logistic_regression。

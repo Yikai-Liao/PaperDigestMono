@@ -21,7 +21,6 @@ def test_llm_config_basic(tmp_path: Path) -> None:
         temperature = 0.5
         top_p = 0.9
         num_workers = 4
-        native_json_schema = true
         """.strip(),
         encoding="utf-8",
     )
@@ -35,7 +34,6 @@ def test_llm_config_basic(tmp_path: Path) -> None:
     assert cfg.temperature == 0.5
     assert cfg.top_p == 0.9
     assert cfg.num_workers == 4
-    assert cfg.native_json_schema is True
     assert cfg.reasoning_effort is None
 
 
@@ -52,7 +50,6 @@ def test_llm_config_with_reasoning_effort(tmp_path: Path) -> None:
         top_p = 0.8
         num_workers = 2
         reasoning_effort = "high"
-        native_json_schema = false
         """.strip(),
         encoding="utf-8",
     )
@@ -60,7 +57,6 @@ def test_llm_config_with_reasoning_effort(tmp_path: Path) -> None:
     cfg = load_config(LLMConfig, config_file)
 
     assert cfg.reasoning_effort == "high"
-    assert cfg.native_json_schema is False
 
 
 def test_llm_config_rejects_extra_fields(tmp_path: Path) -> None:
@@ -82,3 +78,36 @@ def test_llm_config_rejects_extra_fields(tmp_path: Path) -> None:
 
     with pytest.raises(Exception):  # Pydantic ValidationError
         load_config(LLMConfig, config_file)
+
+
+def test_llm_config_resolves_env_reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LLM config should expand env:VAR placeholders when requested."""
+
+    monkeypatch.setenv("MY_API_KEY", "resolved-value")
+    cfg = LLMConfig(
+        alias="env-model",
+        name="env-model",
+        base_url="https://api.example.com",
+        api_key="env:MY_API_KEY",
+        temperature=0.1,
+        top_p=0.8,
+        num_workers=1,
+    reasoning_effort=None,
+    )
+
+    assert cfg.api_key_secret == "resolved-value"
+
+    monkeypatch.delenv("MY_API_KEY", raising=False)
+    cfg_missing = LLMConfig(
+        alias="env-model",
+        name="env-model",
+        base_url="https://api.example.com",
+        api_key="env:MY_API_KEY",
+        temperature=0.1,
+        top_p=0.8,
+        num_workers=1,
+    reasoning_effort=None,
+    )
+
+    with pytest.raises(EnvironmentError):
+        _ = cfg_missing.api_key_secret

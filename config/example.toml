@@ -143,9 +143,9 @@ output_path = "./recommendations.parquet"
 output_dir = "./pdfs"
 delay = 3
 max_retry = 3
-model = "deepseek-r1"
+model = "gemini-2.5-flash"
 language = "zh"
-enable_latex = false
+enable_latex = true
 acceptable_cache_model = ["grok*", "deepseek*", "gemini*"]
 
 # LLM configurations
@@ -157,15 +157,13 @@ api_key = "env:DEEPSEEK_API_KEY"
 temperature = 0.7
 top_p = 0.8
 num_workers = 10
-native_json_schema = false
 
 [[llms]]
 alias = "gemini-2.5-flash"
-name = "gemini-2.5-flash-preview-04-17"
+name = "gemini-2.5-flash"
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
 api_key = "env:GEMINI_API_KEY"
 temperature = 0.1
 top_p = 0.8
 num_workers = 10
 reasoning_effort = "high"
-native_json_schema = true

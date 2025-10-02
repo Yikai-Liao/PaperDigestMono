@@ -56,7 +56,7 @@ def test_app_config_example_file() -> None:
     # Summary pipeline
     assert cfg.summary_pipeline is not None
     assert cfg.summary_pipeline.pdf.output_dir == "./pdfs"
-    assert cfg.summary_pipeline.pdf.model == "deepseek-r1"
+    assert cfg.summary_pipeline.pdf.model == "gemini-2.5-flash"
     assert cfg.summary_pipeline.pdf.language == "zh"
 
     # Backup configuration

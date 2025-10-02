@@ -30,7 +30,6 @@ def _write_config(path: Path, data_root: Path) -> None:
         temperature = 0.2
         top_p = 0.9
         num_workers = 1
-        native_json_schema = true
         """
     ).strip()
     path.write_text(content, encoding="utf-8")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from papersys.config.base import BaseConfig
+from papersys.config.utils import resolve_env_reference
 
 
 class LLMConfig(BaseConfig):
@@ -18,7 +19,14 @@ class LLMConfig(BaseConfig):
     top_p: float = Field(0.8, ge=0.0, le=1.0, description="Nucleus sampling parameter")
     num_workers: int = Field(1, ge=1, description="Concurrent worker count")
     reasoning_effort: str | None = Field(None, description="Reasoning effort level for certain models")
-    native_json_schema: bool = Field(True, description="Whether API supports native JSON schema")
+
+    @property
+    def api_key_secret(self) -> str:
+        """Return the resolved API key, expanding any ``env:VAR`` references."""
+
+        resolved = resolve_env_reference(self.api_key)
+        assert resolved is not None  # guarded by resolve_env_reference
+        return resolved
 
 
 __all__ = ["LLMConfig"]
