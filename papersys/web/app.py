@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 from loguru import logger
 
 from papersys.scheduler.service import SchedulerService
@@ -34,5 +35,12 @@ def create_app(scheduler_service: SchedulerService) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
         return {"status": "success", "message": f"Job '{job_id}' has been scheduled to run."}
+
+    @app.get("/metrics", summary="Prometheus Metrics", tags=["Monitoring"], response_class=PlainTextResponse)
+    async def metrics() -> PlainTextResponse:
+        """Expose scheduler metrics in Prometheus text format."""
+
+        payload = scheduler_service.export_metrics()
+        return PlainTextResponse(content=payload, media_type="text/plain; version=0.0.4")
 
     return app

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -6,9 +8,8 @@ from papersys.scheduler import SchedulerService
 from papersys.web import create_app
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_scheduler_service() -> SchedulerService:
-    """Provides a SchedulerService with a mock config."""
     config = AppConfig(
         data_root=None,
         scheduler_enabled=True,
@@ -22,39 +23,35 @@ def mock_scheduler_service() -> SchedulerService:
             summary_job=SchedulerJobConfig(
                 enabled=True, name="test-summary", cron="* * * * *"
             ),
-        )
+        ),
     )
     service = SchedulerService(config)
     service.setup_jobs()
     return service
 
 
-@pytest.fixture
+@pytest.fixture()
 def client(mock_scheduler_service: SchedulerService) -> TestClient:
-    """Provides a TestClient for the FastAPI app."""
     app = create_app(mock_scheduler_service)
     return TestClient(app)
 
 
-def test_health_check(client: TestClient):
-    """Test the /health endpoint."""
+def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_list_jobs(client: TestClient):
-    """Test the /jobs endpoint."""
+def test_list_jobs(client: TestClient) -> None:
     response = client.get("/jobs")
     assert response.status_code == 200
     jobs = response.json()
     assert len(jobs) == 2
-    assert jobs[0]["id"] == "recommend"
-    assert jobs[1]["id"] == "summary"
+    assert {job["id"] for job in jobs} == {"recommend", "summary"}
+    assert all("next_run_time" in job for job in jobs)
 
 
-def test_run_job_successfully(client: TestClient):
-    """Test the /scheduler/run/{job_id} endpoint for a valid job."""
+def test_run_job_successfully(client: TestClient) -> None:
     response = client.post("/scheduler/run/recommend")
     assert response.status_code == 200
     assert response.json() == {
@@ -63,8 +60,17 @@ def test_run_job_successfully(client: TestClient):
     }
 
 
-def test_run_nonexistent_job(client: TestClient):
-    """Test running a job that does not exist."""
+def test_run_nonexistent_job(client: TestClient) -> None:
     response = client.post("/scheduler/run/nonexistent")
     assert response.status_code == 404
     assert response.json() == {"detail": "Job 'nonexistent' not found."}
+
+
+def test_metrics_endpoint(client: TestClient, mock_scheduler_service: SchedulerService) -> None:
+    runner = mock_scheduler_service._job_runners["recommend"]
+    runner()
+
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "scheduler_job_runs_total" in response.text
+    assert response.headers["content-type"].startswith("text/plain")
