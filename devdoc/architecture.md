@@ -79,6 +79,8 @@
 ### 数据层设计
 
 #### 现有落地（参考仓库来源）
+
+> 关于当前本地数据目录与字段契约的精确说明，请参见《[数据存储结构与字段说明](./data-storage.md)》。下文保留历史背景，后续规划以新文档为准。
 - **ArxivEmbedding**（Hugging Face Dataset：`lyk/ArxivEmbedding`）
   - 年度 Parquet：`<year>.parquet`，字段包含 `id`（arXiv ID）、`title`、`abstract`、`categories`（list[str]）、`created`、`updated`、`doi` 以及多个嵌入列（如 `Embedding.jasper_v1`、`Embedding.m3e_large`，类型 list[float64]）。
   - GitHub Actions 负责上传至 Hugging Face，目录 `reference/ArxivEmbedding/script/` 中的 `incremental_embed_workflow.py` 使用本地缓存目录 `data/parquet/` 与 `data/cache/`。
@@ -94,11 +96,6 @@
 ```
 data/
   metadata/
-    raw/
-      arxiv/
-        YYYY/
-          arxiv-oai-YYYYMMDD.csv        # OAI-PMH/SR feed，列保持原始字段（UTF-8），换行通过 CSV 转义
-    curated/
       metadata-YYYY.csv                 # 去重、标准化后的年度主表（详见下表）
       latest.csv                        # 最近一次抓取的整合视图
   embeddings/
@@ -109,13 +106,12 @@ data/
   preferences/
     events-YYYY.csv                     # 追加式事件流（逗号分隔，字符串按 CSV 规范转义）
   summaries/
-    batched/
-      YYYY/MM.jsonl                     # 每月聚合 JSONL，字段含 paper_id、sections、model_meta
+    YYYY-MM.jsonl                     # 每月聚合 JSONL，字段含 paper_id、sections、model_meta
   temp/
     markdown/                           # 临时 Markdown，供静态站点构建后清理
     pdf/                                # 下载的原始 PDF，缓存策略见运行规范
     cache/                              # 其他短期缓存（向量块、下载中间件等）
-  backups/                              # 由 BackupService 输出的 tar.gz（受 retention 管控）
+  backups/                              # TODO:需要重新设计以支持非压缩的多后端备份，甚至是否需要这个文件夹都需要商讨
 ```
 
 元数据与嵌入表的字段契约：

@@ -132,4 +132,19 @@
   - `devdoc/env.md`
   - `devlog/2025-10-02-embedding-backend-refactor.md`
 - 测试验证：`uv run --no-progress pytest tests/embedding/test_embedding_service.py` 全部通过。
-- 待办：按模块拆分提交，先提交配置/服务实现，再补文档与日志；后续继续推进 ingestion/embedding pipeline 剩余步骤。
+- **Ingestion 模块实现**：已完成 `ArxivOAIClient`（OAI-PMH 客户端，支持断点续传、重试）、`IngestionService`（元数据获取与 CSV 保存）、CLI `ingest` 命令（支持日期范围、限速、去重）。
+- **Embedding 模块实现**：已完成 `EmbeddingService`（多模型嵌入生成，支持 SentenceTransformer 和 vLLM 后端隔离）、CLI `embed` 命令（支持模型选择、限速、积压处理）。
+- 新增配置：`IngestionConfig`、`EmbeddingConfig` 已定义并集成到 `AppConfig`；`config/example.toml` 更新示例。
+- 测试扩展：`tests/ingestion/test_client.py`、`test_ingestion_service.py`、`tests/embedding/test_embedding_service.py` 已实现并通过。
+- 当前仓库新增/修改文件：
+  - `papersys/config/ingestion.py`
+  - `papersys/config/embedding.py`
+  - `papersys/ingestion/client.py`
+  - `papersys/ingestion/service.py`
+  - `papersys/embedding/service.py`
+  - `papersys/cli.py`（新增 `ingest`、`embed` 子命令）
+  - `config/example.toml`
+  - `tests/ingestion/`
+  - `tests/embedding/`
+- 测试验证：`uv run --no-progress pytest tests/ingestion/ tests/embedding/` 全部通过。
+- 待办：按模块拆分提交，先提交配置/服务实现，再补文档与日志；后续继续推进数据迁移脚本和调度集成。
