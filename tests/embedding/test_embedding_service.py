@@ -9,7 +9,7 @@ import polars as pl
 import pytest
 
 from papersys.config.embedding import EmbeddingConfig, EmbeddingModelConfig
-from papersys.embedding.service import EmbeddingService
+from papersys.embedding.service import EmbeddingService, _VLLM_BACKEND_SENTINEL
 
 
 @pytest.fixture
@@ -83,6 +83,24 @@ def test_load_model_sentence_transformers(test_service: EmbeddingService, test_e
     
     from sentence_transformers import SentenceTransformer
     assert isinstance(model, SentenceTransformer)
+
+
+def test_load_model_vllm_backend_returns_sentinel(test_service: EmbeddingService) -> None:
+    """Test that vLLM backend uses subprocess sentinel."""
+    model_config = EmbeddingModelConfig(
+        alias="qwen3_test",
+        name="Qwen/Qwen3-Embedding-0.6B",
+        dimension=768,
+        batch_size=8,
+        max_length=512,
+        device=None,
+        precision="auto",
+        backend="vllm",
+        model_path=None,
+    )
+
+    model = test_service.load_model(model_config)
+    assert model is _VLLM_BACKEND_SENTINEL
 
 
 def test_embed_batch(test_service: EmbeddingService, test_embedding_config: EmbeddingConfig) -> None:

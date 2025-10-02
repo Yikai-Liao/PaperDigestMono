@@ -12,7 +12,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "latex2json",
     "loguru>=0.7.3",
-    "numpy>=2.3.3",
+    "numpy>=2.2.0,<2.3",  # Constrained by numba 0.61.2 (required by vllm 0.10.2)
     "openai>=1.78.1",
     "polars>=1.33.1",
     "pydantic>=2.11.9",
@@ -26,11 +26,23 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Note: vLLM has strict version constraints and may conflict with torch/numpy versions
-# Install manually if needed: uv pip install vllm --no-deps
-vllm = []
+# vLLM for large embedding models (e.g., Qwen3-Embedding-0.6B for jasper_v1)
+# Install with: uv sync --extra vllm
+vllm = [
+    "vllm>=0.10.2",
+]
+
+[tool.uv]
+# Use vLLM's official wheel repository for compatible builds
+[[tool.uv.index]]
+name = "vllm"
+url = "https://wheels.vllm.ai/0.10.2/"
+explicit = true
 
 [tool.uv.sources]
+vllm = [
+    { index = "vllm" },
+]
 latex2json = { git = "https://github.com/mrlooi/latex2json.git" }
 
 [tool.pytest.ini_options]

@@ -40,7 +40,8 @@ dimension = 384
 batch_size = 32
 max_length = 512
 device = ""  # Auto-detect
-precision = "float32"
+precision = "auto"
+backend = "sentence_transformer"
 
 [[embedding.models]]
 alias = "conan_v1"
@@ -48,8 +49,17 @@ name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 dimension = 384
 batch_size = 32
 max_length = 512
-device = ""
-precision = "float32"
+backend = "sentence_transformer"
+
+[[embedding.models]]
+alias = "qwen3_v1"
+name = "Qwen/Qwen3-Embedding-0.6B"
+dimension = 768
+batch_size = 8
+max_length = 512
+device = "cuda"  # Explicitly select GPU to avoid pre-spawn CUDA init
+precision = "auto"
+backend = "vllm"
 
 # Scheduler configuration
 [scheduler]

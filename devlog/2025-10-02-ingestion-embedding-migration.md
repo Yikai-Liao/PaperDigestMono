@@ -117,3 +117,19 @@
 - 2025-10-02：计划已获确认，可以按照上述步骤开展开发与提交。
 
 待开发过程中若遇偏差，将在本文件追加“反思”并同步到经验教训文档。
+
+## 12. 最新进展（2025-10-02 晚）
+
+- `EmbeddingModelConfig` 新增 `backend` 字段，通过配置决定使用 `sentence_transformer` 或 `vllm`，避免在代码中硬编码模型别名。
+- `EmbeddingService` 针对 `vllm` 后端改为在独立 `spawn` 子进程内导入并运行 vLLM，主进程保持纯 SentenceTransformer 逻辑，实现 GPU 资源隔离。
+- `config/example.toml`、`devdoc/env.md` 已同步更新，明确各模型的后端类型及隔离策略；补充新的单元测试覆盖哨兵分支。
+- 新增 devlog `2025-10-02-embedding-backend-refactor.md` 记录实现细节与回滚方案，便于后续提交整理。
+- 当前仓库修改文件：
+  - `papersys/config/embedding.py`
+  - `papersys/embedding/service.py`
+  - `config/example.toml`
+  - `tests/embedding/test_embedding_service.py`
+  - `devdoc/env.md`
+  - `devlog/2025-10-02-embedding-backend-refactor.md`
+- 测试验证：`uv run --no-progress pytest tests/embedding/test_embedding_service.py` 全部通过。
+- 待办：按模块拆分提交，先提交配置/服务实现，再补文档与日志；后续继续推进 ingestion/embedding pipeline 剩余步骤。

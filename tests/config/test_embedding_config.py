@@ -82,7 +82,7 @@ def test_embedding_config_multiple_models(tmp_path: Path) -> None:
     assert model_b.alias == "model_b"
     assert model_b.max_length == 1024
     assert model_b.device == "cpu"
-    assert model_b.precision == "float32"  # default
+    assert model_b.precision == "auto"  # default
 
 
 def test_embedding_config_with_hf_upload(tmp_path: Path) -> None:

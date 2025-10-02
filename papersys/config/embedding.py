@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from .base import BaseConfig
+
+
+PrecisionLiteral = Literal["auto", "float32", "float16"]
+BackendLiteral = Literal["sentence_transformer", "vllm"]
 
 
 class EmbeddingModelConfig(BaseConfig):
@@ -19,7 +25,14 @@ class EmbeddingModelConfig(BaseConfig):
         None,
         description="Device override: 'cuda', 'mps', 'cpu', or None for auto-detect"
     )
-    precision: str = Field("float32", description="Output precision: 'float32' or 'float16'")
+    precision: PrecisionLiteral = Field(
+        "auto",
+        description="Output precision: 'float32', 'float16', or 'auto' for device-aware selection",
+    )
+    backend: BackendLiteral = Field(
+        "sentence_transformer",
+        description="Embedding backend implementation ('sentence_transformer' or 'vllm')",
+    )
     model_path: str | None = Field(None, description="Local path to model weights (optional)")
 
 
