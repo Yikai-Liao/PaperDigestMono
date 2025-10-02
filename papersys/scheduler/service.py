@@ -6,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
+from papersys.backup import BackupService
 from papersys.config import AppConfig, SchedulerJobConfig
 
 
@@ -45,6 +46,13 @@ class SchedulerService:
                 func=self._run_summary_pipeline,
             )
 
+        if self.config.scheduler.backup_job:
+            self._register_job(
+                job_id="backup",
+                job_config=self.config.scheduler.backup_job,
+                func=self._run_backup_pipeline,
+            )
+
         if self.dry_run:
             logger.info("[Dry Run] Jobs have been validated and registered. Scheduler will not be started.")
             for job in self.scheduler.get_jobs():
@@ -82,6 +90,19 @@ class SchedulerService:
         # In a real implementation, this would trigger the summary pipeline
         # from papersys.summary.pipeline
         logger.info("Summary pipeline job finished.")
+
+    def _run_backup_pipeline(self, job_config: SchedulerJobConfig):
+        """Execute the backup pipeline using the backup service."""
+        logger.info(f"Executing backup pipeline for job '{job_config.name}'...")
+        service = BackupService(self.config, dry_run=self.dry_run)
+        result = service.run()
+        if result is None:
+            logger.info("Backup configuration disabled or missing; nothing to do.")
+        else:
+            logger.info(
+                "Backup completed with %s files uploaded.",
+                result.file_count,
+            )
 
     def start(self):
         """Starts the scheduler if not in dry run mode."""

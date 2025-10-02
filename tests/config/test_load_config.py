@@ -68,6 +68,8 @@ def test_app_config_example_file() -> None:
     assert cfg.scheduler.recommend_job.cron == "0 5 * * *"
     assert cfg.scheduler.summary_job is not None
     assert cfg.scheduler.summary_job.cron == "0 6 * * *"
+    assert cfg.scheduler.backup_job is not None
+    assert cfg.scheduler.backup_job.name == "nightly-backup"
 
     # LLM configurations
     assert len(cfg.llms) == 2
@@ -75,3 +77,14 @@ def test_app_config_example_file() -> None:
     assert deepseek is not None
     assert deepseek.name == "deepseek-reasoner"
     assert deepseek.num_workers == 10
+
+    # Backup configuration
+    assert cfg.backup is not None
+    assert cfg.backup.enabled is True
+    assert cfg.backup.sources == [
+        Path("./config"),
+        Path("./devlog"),
+        Path("./papersys"),
+    ]
+    assert cfg.backup.destination.storage == "local"
+    assert cfg.backup.destination.path == Path("./backups")

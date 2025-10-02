@@ -23,6 +23,9 @@ def mock_config() -> AppConfig:
             summary_job=SchedulerJobConfig(
                 enabled=False, name="test-summary", cron="* * * * *"
             ),
+            backup_job=SchedulerJobConfig(
+                enabled=True, name="test-backup", cron="*/5 * * * *"
+            ),
         )
     )
 
@@ -42,6 +45,7 @@ def test_scheduler_service_setup_jobs(mock_config):
 
     assert service.scheduler.get_job("recommend") is not None
     assert service.scheduler.get_job("summary") is None  # Disabled in config
+    assert service.scheduler.get_job("backup") is not None
 
 
 def test_scheduler_service_dry_run(mock_config, capsys):
