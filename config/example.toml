@@ -9,16 +9,17 @@ logging_level = "INFO"
 # Scheduler configuration
 [scheduler]
 enabled = true
+timezone = "Asia/Shanghai"
 
 [scheduler.recommend_job]
 enabled = true
 name = "recommendation-pipeline"
-cron_schedule = "0 5 * * *" # Daily at 5 AM UTC
+cron = "0 5 * * *" # Daily at 5 AM local time
 
 [scheduler.summary_job]
 enabled = true
 name = "summary-pipeline"
-cron_schedule = "0 6 * * *" # Daily at 6 AM UTC
+cron = "0 6 * * *" # Daily at 6 AM local time
 
 # Recommendation pipeline configuration
 [recommend_pipeline.data]

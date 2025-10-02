@@ -112,8 +112,8 @@
   - `PdfConfig`：output_dir、delay、max_retry、model（LLM alias）、language、enable_latex、acceptable_cache_model。
   - `SummaryPipelineConfig`：包含 pdf 节点。
 - **`scheduler.py`**：
-  - `SchedulerJobConfig`：`enabled`, `name`, `cron_schedule`。
-  - `SchedulerConfig`：`enabled`, `recommend_job`, `summary_job`。
+  - `SchedulerJobConfig`：`enabled`, `name`, `cron`（Cron 表达式）。
+  - `SchedulerConfig`：`enabled`, `timezone`, `recommend_job`, `summary_job`。
 - **`app.py`**：`AppConfig` 顶层配置（`data_root`、`scheduler_enabled`、`embedding_models`、`logging_level` 为历史兼容字段；`recommend_pipeline`、`summary_pipeline`、`llms`、`scheduler` 为新业务配置）。
 
 示例配置 `config/example.toml` 包含完整字段，单元测试 `tests/config/test_*.py` 覆盖各层级读取与严格性校验，CLI `status --dry-run` 输出详细状态。

@@ -1,6 +1,9 @@
-from typing import Dict, Any
+from datetime import datetime
+from typing import Any, Callable, Dict, Tuple
+from uuid import uuid4
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
 from papersys.config import AppConfig, SchedulerJobConfig
@@ -12,8 +15,10 @@ class SchedulerService:
     def __init__(self, config: AppConfig, dry_run: bool = False):
         self.config = config
         self.dry_run = dry_run
-        self.scheduler = BackgroundScheduler(timezone="UTC")
-        self._jobs: Dict[str, Any] = {}
+        timezone = (config.scheduler.timezone if config.scheduler and config.scheduler.timezone else "UTC")
+        self.scheduler = BackgroundScheduler(timezone=timezone)
+        self._timezone = timezone
+        self._jobs: Dict[str, Tuple[Callable[[SchedulerJobConfig], None], SchedulerJobConfig]] = {}
 
     def setup_jobs(self):
         """Registers jobs based on the application configuration."""
@@ -21,7 +26,11 @@ class SchedulerService:
             logger.warning("Scheduler is disabled in the configuration. No jobs will be scheduled.")
             return
 
+        self.scheduler.remove_all_jobs()
+        self._jobs.clear()
+
         logger.info("Setting up scheduled jobs...")
+        logger.info("Scheduler timezone: {}", self._timezone)
         if self.config.scheduler.recommend_job:
             self._register_job(
                 job_id="recommend",
@@ -42,24 +51,23 @@ class SchedulerService:
                 logger.info(f"[Dry Run] Job '{job.id}' with trigger: {job.trigger}")
             return
 
-    def _register_job(self, job_id: str, job_config: SchedulerJobConfig, func):
+    def _register_job(self, job_id: str, job_config: SchedulerJobConfig, func: Callable[[SchedulerJobConfig], None]):
         """Helper to register a single job."""
         if not job_config.enabled:
             logger.info(f"Job '{job_id}' is disabled, skipping.")
             return
 
-        logger.info(f"Registering job '{job_id}' with cron schedule: '{job_config.cron_schedule}'")
+        logger.info(f"Registering job '{job_id}' with cron schedule: '{job_config.cron}'")
+        trigger = CronTrigger.from_crontab(job_config.cron, timezone=self._timezone)
         self.scheduler.add_job(
             func,
-            "cron",
+            trigger,
             id=job_id,
-            name=job_id,
-            day_of_week=job_config.cron_schedule.split(" ")[4],
-            hour=job_config.cron_schedule.split(" ")[2],
-            minute=job_config.cron_schedule.split(" ")[1],
-            # second=job_config.cron_schedule.split(" ")[0], # APScheduler cron doesn't support seconds
+            name=job_config.name,
             kwargs={"job_config": job_config},
+            replace_existing=True,
         )
+        self._jobs[job_id] = (func, job_config)
 
     def _run_recommend_pipeline(self, job_config: SchedulerJobConfig):
         """Placeholder for the actual recommendation pipeline execution."""
@@ -84,6 +92,10 @@ class SchedulerService:
             logger.warning("No jobs are scheduled. The scheduler will not start.")
             return
 
+        if self.scheduler.running:
+            logger.info("Scheduler is already running.")
+            return
+
         logger.info("Starting scheduler...")
         self.scheduler.start()
 
@@ -95,3 +107,36 @@ class SchedulerService:
             logger.info("Scheduler has been shut down.")
         else:
             logger.info("Scheduler is not running.")
+
+    def list_jobs(self) -> list[dict[str, Any]]:
+        """Return current scheduled jobs in serialisable form."""
+        return [
+            {"id": job.id, "name": job.name, "trigger": str(job.trigger)}
+            for job in self.scheduler.get_jobs()
+        ]
+
+    def trigger_job(self, job_id: str) -> bool:
+        """Trigger a registered job to run immediately."""
+        job_entry = self._jobs.get(job_id)
+        job = self.scheduler.get_job(job_id)
+        if job_entry is None or job is None:
+            return False
+
+        func, job_config = job_entry
+
+        if self.dry_run:
+            logger.info("[Dry Run] Manual trigger for job '{}' skipped.", job_id)
+            return True
+
+        logger.info("Manually triggering job '{}'", job_id)
+        run_date = datetime.now(self.scheduler.timezone)
+        self.scheduler.add_job(
+            func,
+            trigger="date",
+            run_date=run_date,
+            kwargs={"job_config": job_config},
+            id=f"{job_id}-manual-{uuid4().hex}",
+        )
+        if self.scheduler.running:
+            self.scheduler.wakeup()
+        return True

@@ -10,13 +10,17 @@ from papersys.web import create_app
 def mock_scheduler_service() -> SchedulerService:
     """Provides a SchedulerService with a mock config."""
     config = AppConfig(
+        data_root=None,
+        scheduler_enabled=True,
+        logging_level="INFO",
         scheduler=SchedulerConfig(
             enabled=True,
+            timezone="UTC",
             recommend_job=SchedulerJobConfig(
-                enabled=True, name="test-recommend", cron_schedule="* * * * *"
+                enabled=True, name="test-recommend", cron="* * * * *"
             ),
             summary_job=SchedulerJobConfig(
-                enabled=True, name="test-summary", cron_schedule="* * * * *"
+                enabled=True, name="test-summary", cron="* * * * *"
             ),
         )
     )
@@ -55,7 +59,7 @@ def test_run_job_successfully(client: TestClient):
     assert response.status_code == 200
     assert response.json() == {
         "status": "success",
-        "message": "Job 'recommend' has been triggered to run.",
+        "message": "Job 'recommend' has been scheduled to run.",
     }
 
 

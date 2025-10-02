@@ -152,29 +152,25 @@
 
 ---
 
-## 11. T8 执行记录（2025-10-01）
+## 11. T8 执行记录（2025-10-02 夜间）
 
 ### 交付物
-- **SchedulerService (`papersys/scheduler/service.py`)**: 实现了基于 `APScheduler` 的作业调度服务，支持从配置中加载 cron 作业、dry-run 验证和优雅关闭。
-- **FastAPI Web App (`papersys/web/app.py`)**: 构建了 Web 控制台骨架，提供了 `/health` (健康检查), `/jobs` (列出作业), 和 `/scheduler/run/{job_id}` (手动触发) API 端点。
-- **CLI `serve` 命令 (`papersys/cli.py`)**: 新增了 `serve` 子命令，用于启动调度器和 FastAPI 应用，并支持 `--dry-run` 模式。
-- **配置更新**:
-  - `papersys/config/scheduler.py`: 修正并实现了与开发计划一致的 `SchedulerConfig` 和 `SchedulerJobConfig` 模型。
-  - `config/example.toml`: 更新了 `[scheduler]` 部分以匹配新的配置模型。
-- **单元测试**:
-  - `tests/scheduler/test_service.py`: 为 `SchedulerService` 添加了单元测试。
-  - `tests/web/test_app.py`: 为 FastAPI 应用的 API 端点添加了单元测试。
-  - `tests/cli/test_cli_serve.py`: 为 CLI `serve` 命令添加了单元测试。
-- **文档更新**:
-  - `devdoc/architecture.md`: 更新了架构文档，增加了关于调度器和 Web 控制台的详细说明。
+- **SchedulerService (`papersys/scheduler/service.py`)**：基于 `APScheduler` 的调度服务，支持按 `cron` 表达式注册作业，遵循配置时区；提供作业清单、dry-run 校验以及手动触发接口。
+- **FastAPI Web 应用 (`papersys/web/app.py`)**：实现 `/health`、`/jobs`、`/scheduler/run/{job_id}` 三个端点，并改用 `SchedulerService` 的 helper 方法保证行为一致。
+- **CLI `serve` 子命令 (`papersys/cli.py`)**：串联配置加载、调度器初始化与 FastAPI 服务启动，`--dry-run` 下只校验作业不启动服务。
+- **配置与示例**：
+  - `papersys/config/scheduler.py` 现支持 `enabled`、`timezone`、`cron` 字段（兼容旧别名），并在模型层固定默认值。
+  - `config/example.toml` 更新为示例化时区及推荐/摘要作业的 cron 表达式。
+- **测试补齐**：
+  - `tests/scheduler/test_service.py` 新增对 `trigger_job()` 的覆盖，验证手动触发会追加一次性作业。
+  - `tests/web/test_app.py` 与 `tests/cli/test_cli_serve.py` 调整断言，匹配新的响应与日志。
 
 ### 验收结果
-- `uv run pytest tests/`：所有 28 个测试全部通过，包括为新组件编写的 9 个测试。
-- `uv run python -m papersys.cli --config config/example.toml serve --dry-run`: 命令成功执行并输出预期的 dry-run 日志，验证了配置加载和作业注册逻辑。
-- API 手动验证：通过 `TestClient` 在测试中验证了 `/health`, `/jobs`, 和 `/scheduler/run/{job_id}` 端点的功能。
+- `uv run pytest`（默认忽略 reference）通过 28 项测试，覆盖 config/scheduler/web/cli 模块。
+- `uv run python -m papersys.cli --config config/example.toml serve --dry-run`：输出调度时区、作业注册信息，并在 dry-run 模式下安全退出。
+- FastAPI TestClient 覆盖 `/jobs` 与手动触发 API，响应体含最新字段。
 
 ### 遇到的问题 & 处理
-- **日志模块不一致**: 初期代码错误地使用了 `logging` 而不是项目规范的 `loguru`。已在 `service.py` 和 `app.py` 中修正。
-- **Pytest 模块冲突**: `tests/cli/test_cli.py` 与 `tests/summary/test_cli.py` 文件名冲突导致 `pytest` 收集错误。通过重命名为 `test_cli_serve.py` 和 `test_cli_summarize.py` 解决。
-- **Pydantic 配置模型不匹配**: `papersys/config/scheduler.py` 中的模型与开发计划不符，导致测试中的 `ValidationError`。已按照开发计划重写该文件。
-- **`pytest` 日志捕获问题**: `caplog` 无法捕获 `loguru` 的输出。在测试函数中通过重新配置 `loguru` sink 到 `sys.stderr`，并改用 `capsys` 捕获 `stderr` 来解决。
+- **cron 解析误差**：分词解析导致分钟/小时错位 → 改用 `CronTrigger.from_crontab`，并显式记录时区。
+- **手动触发无效果**：`job.modify(next_run_time=None)` 对未运行调度器无效 → 新增 `trigger_job()`，通过一次性任务实现立即执行。
+- **配置字段漂移**：示例与模型字段不一致 → 统一改为 `cron` + `timezone`，并在测试中断言。
