@@ -58,41 +58,35 @@ class IngestionService:
         total_saved = 0
         batch_buffer: list[dict] = []
 
-        # Fetch records for each category
-        for category in self.config.categories:
-            logger.info("Fetching records for category: {}", category)
-            try:
-                for record in self.client.list_records(
-                    from_date=from_date,
-                    until_date=until_date,
-                    set_spec=category,
-                ):
-                    total_fetched += 1
+        # Fetch all records and filter by category
+        try:
+            for record in self.client.list_records(
+                from_date=from_date,
+                until_date=until_date,
+                set_spec=None,  # Don't use set filtering; filter client-side instead
+            ):
+                total_fetched += 1
 
-                    # Filter by primary category
-                    if record.primary_category not in self.config.categories:
-                        continue
+                # Filter by primary category
+                if record.primary_category not in self.config.categories:
+                    continue
 
-                    batch_buffer.append(self._record_to_dict(record))
+                batch_buffer.append(self._record_to_dict(record))
 
-                    # Save batch when buffer is full
-                    if len(batch_buffer) >= self.config.batch_size:
-                        self._save_batch(batch_buffer)
-                        total_saved += len(batch_buffer)
-                        batch_buffer.clear()
-                        logger.debug("Saved batch; total saved: {}", total_saved)
+                # Save batch when buffer is full
+                if len(batch_buffer) >= self.config.batch_size:
+                    self._save_batch(batch_buffer)
+                    total_saved += len(batch_buffer)
+                    batch_buffer.clear()
+                    logger.debug("Saved batch; total saved: {}", total_saved)
 
-                    # Check limit for testing
-                    if limit and total_fetched >= limit:
-                        logger.info("Reached limit of {} records", limit)
-                        break
-
-                if limit and total_fetched >= limit:
+                # Check limit for testing
+                if limit and total_saved >= limit:
+                    logger.info("Reached save limit of {} records", limit)
                     break
 
-            except Exception as exc:
-                logger.error("Failed to fetch category {}: {}", category, exc)
-                continue
+        except Exception as exc:
+            logger.error("Failed to fetch records: {}", exc)
 
         # Save remaining records
         if batch_buffer:
