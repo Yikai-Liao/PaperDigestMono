@@ -13,7 +13,7 @@
 - 仅使用 **uv** 管理 Python 3.12+ 环境：
   - 运行命令统一格式：`uv run --no-progress python …`、`uv run --no-progress pytest …`。
   - 安装/卸载依赖：`uv add <pkg>` / `uv remove <pkg>`；禁止直接改写 `pyproject.toml` 或使用 `pip install` 系列命令。
-- 默认选用现代 CLI 与库：`lsd`、`fd`、`tokei`、`duckdb`、`polars`、`numpy`、`fastapi`、`loguru`；避免 `find`、`conda`、`pandas`、`logging`。
+- 默认选用现代 CLI 与库：`duckdb`、`polars`、`numpy`、`fastapi`、`loguru`；避免 `find`、`conda`、`pandas`、`logging`。
 - 数据处理优先 `polars`（惰性执行）与 `duckdb`（复杂查询），兼容 HuggingFace 数据源。
 - Python 代码务必使用 `pathlib.Path` 管理路径。
 - Shell 命令必须是非交互式的；提前确认输出量，避免进入分页或需要人工确认的流程。
