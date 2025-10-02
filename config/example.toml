@@ -6,6 +6,16 @@ scheduler_enabled = true
 embedding_models = ["jasper_v1"]
 logging_level = "INFO"
 
+# Web console configuration
+[web]
+enabled = true
+title = "PaperDigest Scheduler Console"
+
+[web.auth]
+enabled = true
+header_name = "X-Console-Token"
+token = "change-me"
+
 # Scheduler configuration
 [scheduler]
 enabled = true

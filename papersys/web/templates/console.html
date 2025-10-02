@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title }}</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--surface, #f5f5f5);
+        color: inherit;
+      }
+      header {
+        background: linear-gradient(135deg, #3f51b5, #2196f3);
+        color: #fff;
+        padding: 1.5rem 1rem;
+        text-align: center;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 1.5rem 1rem 3rem;
+      }
+      h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: clamp(1.8rem, 3vw, 2.5rem);
+      }
+      p.lead {
+        margin: 0;
+        font-size: 1rem;
+        opacity: 0.85;
+      }
+      section {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-top: 1.5rem;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 0.75rem 0.5rem;
+        text-align: left;
+      }
+      th {
+        font-size: 0.85rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+      tbody tr:nth-child(even) {
+        background: rgba(33, 150, 243, 0.05);
+      }
+      button.trigger {
+        padding: 0.5rem 0.75rem;
+        border: none;
+        border-radius: 999px;
+        background: #2196f3;
+        color: #fff;
+        cursor: pointer;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      button.trigger:focus {
+        outline: 2px solid rgba(63, 81, 181, 0.5);
+        outline-offset: 2px;
+      }
+      button.trigger:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(33, 150, 243, 0.35);
+      }
+      .status-banner {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        display: none;
+      }
+      .status-banner[data-state="success"] {
+        display: block;
+        background: rgba(76, 175, 80, 0.2);
+        color: #1b5e20;
+      }
+      .status-banner[data-state="error"] {
+        display: block;
+        background: rgba(244, 67, 54, 0.2);
+        color: #b71c1c;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        margin-top: 1.5rem;
+      }
+      .toolbar label {
+        font-weight: 600;
+      }
+      .toolbar input[type="password"],
+      .toolbar input[type="text"] {
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        padding: 0.5rem 0.75rem;
+        min-width: 220px;
+      }
+      .toolbar button.save-token {
+        background: transparent;
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.7);
+      }
+      .toolbar button.save-token:hover {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+      }
+      @media (max-width: 600px) {
+        section {
+          padding: 1rem;
+        }
+        th,
+        td {
+          font-size: 0.9rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>{{ title }}</h1>
+      <p class="lead">Monitor scheduled jobs and trigger them on demand.</p>
+      {% if auth_enabled %}
+      <div class="toolbar" role="region" aria-live="polite">
+        <label for="token-input">Access token</label>
+        <input
+          id="token-input"
+          type="password"
+          autocomplete="off"
+          aria-describedby="token-hint"
+        />
+        <button type="button" class="trigger save-token" id="store-token">
+          Save token
+        </button>
+        <span id="token-hint">Stored locally in this browser only.</span>
+      </div>
+      {% endif %}
+    </header>
+    <main>
+      <section aria-labelledby="jobs-heading">
+        <h2 id="jobs-heading">Scheduled jobs</h2>
+        <div id="jobs-container" role="region" aria-live="polite">
+          <p>Loading jobs…</p>
+        </div>
+        <div class="status-banner" id="status-banner"></div>
+      </section>
+    </main>
+    <script>
+      (function () {
+        const authEnabled = {{ auth_enabled | tojson }};
+        const headerName = {{ header_name | tojson }};
+        const jobsContainer = document.getElementById('jobs-container');
+        const statusBanner = document.getElementById('status-banner');
+        const tokenInput = document.getElementById('token-input');
+        const storeBtn = document.getElementById('store-token');
+        const STORAGE_KEY = 'paperdigest-console-token';
+
+        function setStatus(message, state) {
+          if (!statusBanner) return;
+          statusBanner.textContent = message;
+          if (state) {
+            statusBanner.setAttribute('data-state', state);
+          } else {
+            statusBanner.removeAttribute('data-state');
+          }
+        }
+
+        function getToken() {
+          if (!authEnabled) {
+            return null;
+          }
+          const current = tokenInput ? tokenInput.value.trim() : '';
+          if (current) {
+            return current;
+          }
+          try {
+            return localStorage.getItem(STORAGE_KEY);
+          } catch (err) {
+            console.warn('Unable to access localStorage', err);
+          }
+          return null;
+        }
+
+        function persistToken() {
+          if (!authEnabled || !tokenInput) {
+            return;
+          }
+          const value = tokenInput.value.trim();
+          try {
+            if (value) {
+              localStorage.setItem(STORAGE_KEY, value);
+            } else {
+              localStorage.removeItem(STORAGE_KEY);
+            }
+            setStatus('Token preference saved locally.', 'success');
+            fetchJobs();
+          } catch (err) {
+            setStatus('Unable to persist token: ' + err, 'error');
+          }
+        }
+
+        function loadInitialToken() {
+          if (!authEnabled || !tokenInput) {
+            return;
+          }
+          try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+              tokenInput.value = stored;
+            }
+          } catch (err) {
+            console.warn('Unable to read stored token', err);
+          }
+        }
+
+        async function fetchJobs() {
+          setStatus('', null);
+          const headers = new Headers();
+          if (authEnabled) {
+            const token = getToken();
+            if (!token) {
+              setStatus('Enter your access token to load jobs.', 'error');
+              jobsContainer.innerHTML = '<p>Token required to display jobs.</p>';
+              return;
+            }
+            headers.set(headerName, token);
+          }
+          try {
+            const response = await fetch('/jobs', { headers });
+            if (!response.ok) {
+              const detail = await response.json().catch(() => ({}));
+              throw new Error(detail.detail || 'Failed to load jobs.');
+            }
+            const jobs = await response.json();
+            renderJobs(jobs);
+          } catch (error) {
+            jobsContainer.innerHTML = '<p role="alert">' +
+              (error instanceof Error ? error.message : 'Unable to load jobs.') +
+              '</p>';
+            setStatus('Failed to load jobs.', 'error');
+          }
+        }
+
+        function renderJobs(jobs) {
+          if (!Array.isArray(jobs) || jobs.length === 0) {
+            jobsContainer.innerHTML = '<p>No jobs registered.</p>';
+            return;
+          }
+          const rows = jobs
+            .map(
+              (job) => `
+                <tr>
+                  <td>${job.id}</td>
+                  <td>${job.name ?? ''}</td>
+                  <td><code>${job.trigger ?? ''}</code></td>
+                  <td>
+                    <button class="trigger" data-job="${job.id}" aria-label="Run ${job.id} now">
+                      ▶ Run
+                    </button>
+                  </td>
+                </tr>
+              `,
+            )
+            .join('');
+          jobsContainer.innerHTML = `
+            <table aria-describedby="jobs-heading">
+              <thead>
+                <tr>
+                  <th scope="col">ID</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Schedule</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+          `;
+        }
+
+        async function triggerJob(jobId) {
+          setStatus('Triggering job ' + jobId + '…', null);
+          const headers = new Headers({ 'Content-Type': 'application/json' });
+          if (authEnabled) {
+            const token = getToken();
+            if (!token) {
+              setStatus('Token required to trigger jobs.', 'error');
+              return;
+            }
+            headers.set(headerName, token);
+          }
+          try {
+            const response = await fetch('/scheduler/run/' + encodeURIComponent(jobId), {
+              method: 'POST',
+              headers,
+            });
+            if (!response.ok) {
+              const detail = await response.json().catch(() => ({}));
+              throw new Error(detail.detail || 'Trigger failed.');
+            }
+            setStatus('Job ' + jobId + ' triggered successfully.', 'success');
+          } catch (error) {
+            setStatus(
+              error instanceof Error ? error.message : 'Unable to trigger job.',
+              'error',
+            );
+          }
+        }
+
+        jobsContainer.addEventListener('click', (event) => {
+          const target = event.target;
+          if (target instanceof HTMLElement && target.matches('button.trigger')) {
+            const jobId = target.getAttribute('data-job');
+            if (jobId) {
+              triggerJob(jobId);
+            }
+          }
+        });
+
+        if (storeBtn) {
+          storeBtn.addEventListener('click', persistToken);
+        }
+
+        loadInitialToken();
+        fetchJobs();
+      })();
+    </script>
+  </body>
+</html>

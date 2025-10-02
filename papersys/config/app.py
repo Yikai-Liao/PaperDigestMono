@@ -11,6 +11,7 @@ from papersys.config.llm import LLMConfig
 from papersys.config.recommend import RecommendPipelineConfig
 from papersys.config.scheduler import SchedulerConfig
 from papersys.config.summary import SummaryPipelineConfig
+from papersys.config.web import WebUIConfig
 
 
 class AppConfig(BaseConfig):
@@ -27,6 +28,7 @@ class AppConfig(BaseConfig):
     summary_pipeline: SummaryPipelineConfig | None = None
     scheduler: SchedulerConfig | None = Field(None, description="Scheduler configuration")
     llms: list[LLMConfig] = Field(default_factory=list, description="Available LLM configurations")
+    web: WebUIConfig | None = Field(None, description="Settings for the web console UI")
 
 
 __all__ = ["AppConfig"]

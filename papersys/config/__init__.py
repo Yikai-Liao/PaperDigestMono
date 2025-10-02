@@ -14,6 +14,7 @@ from .recommend import (
 )
 from .scheduler import SchedulerConfig, SchedulerJobConfig
 from .summary import PdfConfig, SummaryPipelineConfig
+from .web import WebAuthConfig, WebUIConfig
 
 __all__ = [
     "BaseConfig",
@@ -29,4 +30,6 @@ __all__ = [
     "SchedulerJobConfig",
     "PdfConfig",
     "SummaryPipelineConfig",
+    "WebAuthConfig",
+    "WebUIConfig",
 ]
