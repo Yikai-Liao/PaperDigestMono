@@ -18,10 +18,17 @@ dependencies = [
     "pydantic>=2.11.9",
     "pytest>=8.4.2",
     "scikit-learn>=1.7.2",
+    "sentence-transformers>=5.1.1",
     "timeout-decorator>=0.5.0",
     "toml>=0.10.2",
+    "torch>=2.8.0",
     "uvicorn>=0.37.0",
 ]
+
+[project.optional-dependencies]
+# Note: vLLM has strict version constraints and may conflict with torch/numpy versions
+# Install manually if needed: uv pip install vllm --no-deps
+vllm = []
 
 [tool.uv.sources]
 latex2json = { git = "https://github.com/mrlooi/latex2json.git" }
