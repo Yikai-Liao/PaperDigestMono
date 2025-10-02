@@ -27,6 +27,7 @@ class SchedulerConfig(BaseConfig):
     timezone: str = Field("UTC", description="Timezone used by the scheduler")
     recommend_job: SchedulerJobConfig | None = Field(None, description="Recommendation pipeline job schedule")
     summary_job: SchedulerJobConfig | None = Field(None, description="Summary pipeline job schedule")
+    backup_job: SchedulerJobConfig | None = Field(None, description="Backup pipeline job schedule")
 
 
 __all__ = ["SchedulerJobConfig", "SchedulerConfig"]

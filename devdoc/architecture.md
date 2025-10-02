@@ -74,6 +74,7 @@
 | Summarization Orchestrator | 下载 PDF、调用 LLM、产出 JSONL/Markdown | 保持单次结构化产物生成流程，聚焦日志与失败告警 |
 | Publishing Adapter | Markdown→Astro/GitHub→Cloudflare，或 Notion API | 插件化输出端，支持多目标 |
 | Feedback Collector | 聚合 giscus/Notion/手动偏好 | 标准化成偏好事件流 |
+| Backup Service | 打包关键目录并推送到本地/NAS/Hugging Face | `BackupService` + 可插拔上传器，提供 manifest 与保留策略 |
 | Orchestrator API | 暴露 HTTP/CLI 接口统一触发流程 | 支持局域网访问与远程触发 |
 
 ### 数据层设计
@@ -113,8 +114,9 @@
   - `SummaryPipelineConfig`：包含 pdf 节点。
 - **`scheduler.py`**：
   - `SchedulerJobConfig`：`enabled`, `name`, `cron`（Cron 表达式）。
-  - `SchedulerConfig`：`enabled`, `timezone`, `recommend_job`, `summary_job`。
-- **`app.py`**：`AppConfig` 顶层配置（`data_root`、`scheduler_enabled`、`embedding_models`、`logging_level` 为历史兼容字段；`recommend_pipeline`、`summary_pipeline`、`llms`、`scheduler` 为新业务配置）。
+  - `SchedulerConfig`：`enabled`, `timezone`, `recommend_job`, `summary_job`, `backup_job`。
+- **`backup.py`**：`BackupConfig`（开关、打包源、排除模式、临时目录、保留策略）与 `BackupDestinationConfig`（本地目录或 Hugging Face Dataset 目标、凭证）。
+- **`app.py`**：`AppConfig` 顶层配置（`data_root`、`scheduler_enabled`、`embedding_models`、`logging_level` 为历史兼容字段；`recommend_pipeline`、`summary_pipeline`、`llms`、`scheduler`、`backup` 为新业务配置）。
 
 示例配置 `config/example.toml` 包含完整字段，单元测试 `tests/config/test_*.py` 覆盖各层级读取与严格性校验，CLI `status --dry-run` 输出详细状态。
 
@@ -144,6 +146,7 @@
   - **功能**:
     - 根据 `config.toml` 中的 `scheduler` 配置动态注册和管理作业。
     - 支持 `dry-run` 模式，用于验证作业配置而不实际执行。
+    - 新增 `backup` 作业：结合 `BackupService` 打包指定目录并上传，可在 dry-run 下预览计划执行。
     - 提供优雅的启动和关闭接口，与 Web 服务生命周期集成。
 
 - **FastAPI Web 应用 (`papersys/web/app.py`)**:
@@ -171,13 +174,32 @@
 - **Notion**：若切换到 Notion 展示，直接读取数据库中的“打分”列生成偏好事件。
 - **手动导入**：保留 Zotero → CSV 转换脚本，接入统一偏好写入接口。
 
-### 备份与同步策略
+### 备份与同步策略（已落地）
 
-- **主存储**：本地 `data/` 目录（挂载卷）。
-- **远程备份**：
-	- 元数据与嵌入：按模型/年份将 Parquet 推送至 Hugging Face（继续使用，但降低频率，例如每日/每周一次）。
-	- 摘要与偏好：压缩打包上传至私有对象存储或 GitHub Release。
-	- 配置备份：`config.toml` 与偏好 CSV 自动同步到私有 git 分支。
+- **核心服务**：`BackupService` (`papersys/backup/service.py`) 依据 `BackupConfig` 收集配置、日志、模型等目录，生成带有 `MANIFEST.json` 的 `tar.gz` 归档，并调用可插拔上传器完成持久化。失败时会删除临时文件，避免碎片残留。
+- **上传实现**：
+  - `LocalUploader` 将归档复制到指定目录并依据 `retention` 保留最近 N 份，便于离线恢复或同步至 NAS。
+  - `HuggingFaceDatasetUploader` 复用既有 `huggingface_hub` 依赖，将归档推送至私有 Dataset 仓库；`token` 字段支持 `env:VAR` 解析。
+- **调度集成**：`scheduler.backup_job` 提供 cron 表达式控制运行时机，`dry-run` 模式会保留临时包方便核对清单，正式运行成功后自动清理 staging 目录。
+
+#### 配置要点
+
+- `backup.sources`：列出需要保护的目录或文件，支持混合路径。推荐将运行态配置、`devlog/`、模型检查点等加入列表。
+- `backup.exclude`：使用相对路径或文件名通配符排除大体积缓存（如 `__pycache__/*`、`*.tmp`）。
+- `backup.destination.storage`：选择 `local`（默认）或 `huggingface`。
+  - `local` 模式需提供 `backup.destination.path`；可结合同步工具再复制到外部硬盘。
+  - `huggingface` 模式需填写 `repo_id`、可选 `repo_path`，`token` 建议写成 `env:HF_TOKEN` 并通过环境变量注入。
+- `backup.retention`：仅对本地目标生效，控制保留归档数量，超过即按时间顺序清理最旧文件。
+
+#### 恢复步骤
+
+1. **定位归档**：
+   - 本地模式：在 `backup.destination.path` 下选择所需日期的 `*.tar.gz` 包。
+   - Hugging Face 模式：使用 `huggingface_hub` 下载 `hf://<repo>/<path>/<bundle>.tar.gz`（可借助 `huggingface-cli download`）。
+2. **校验清单**：解压归档读取 `MANIFEST.json`，确认 `entries` 中列出的源路径是否齐全，并检查 `stats.files`、`stats.bytes` 是否异常。
+3. **恢复文件**：将 tar 包解压至新的工作目录，按照 `sources` 列表将文件移动回目标位置；对配置类文件建议先在测试环境验证差异后再覆盖生产环境。
+4. **验证与清理**：恢复完成后启动核心服务（例如 `uv run python -m papersys.cli serve --dry-run`）确认配置加载正常，再删除临时解压目录。
+5. **故障处理**：若解压或上传失败，可查看打包日志；需要重新生成时使用 `BackupService.create_bundle()` 在 dry-run 下重试，确认通过后再执行正式上传。
 
 ### 迁移步骤（建议）
 
