@@ -12,14 +12,21 @@
 ## Environment & tools
 - 仅使用 **uv** 管理 Python 3.12+ 环境：
   - 运行命令统一格式：`uv run --no-progress python …`、`uv run --no-progress pytest …`。
-  - 安装/卸载依赖：`uv add <pkg>` / `uv remove <pkg>`；禁止直接改写 `pyproject.toml`。
-- 倾向采用现代 CLI：`lsd`、`fd`、`tokei`、`duckdb`、`polars`、`numpy`、`fastapi`、`loguru` 等；避免 `find`、`conda`、`pandas`、`logging`。
+  - 安装/卸载依赖：`uv add <pkg>` / `uv remove <pkg>`；禁止直接改写 `pyproject.toml` 或使用 `pip install` 系列命令。
+- 默认选用现代 CLI 与库：`lsd`、`fd`、`tokei`、`duckdb`、`polars`、`numpy`、`fastapi`、`loguru`；避免 `find`、`conda`、`pandas`、`logging`。
+- 数据处理优先 `polars`（惰性执行）与 `duckdb`（复杂查询），兼容 HuggingFace 数据源。
 - Python 代码务必使用 `pathlib.Path` 管理路径。
+- Shell 命令必须是非交互式的；提前确认输出量，避免进入分页或需要人工确认的流程。
 
 ## Workflow guardrails
 - 多文件或复杂改动前，必须在 `devlog/` 下新增变更计划 Markdown，覆盖现状、风险、方案与回滚策略，经确认后再动代码。
 - 命令行禁用交互式或需要人工确认的操作（如默认的 `git merge` 编辑器、`rm -i` 等）。若需合并，使用非交互命令组合完成。
 - 变更完成后按计划执行自动化测试并在 devlog 中记录结果与反思（若偏离预期）。
+
+## Collaboration mindset
+- 保持耐心细致：完整阅读相关代码与文档，再动手实现，拒绝“跳步骤”或侥幸通过测试。
+- 遇到不确定性时及时沟通，宁可多问也不要猜测需求或接口行为。
+- 信息检索是首选手段：对于第三方库、奇怪报错或依赖问题，优先查阅官方文档、GitHub Issues、StackOverflow 等资源。
 
 ## Coding conventions
 - 代码、注释、提交信息写英文；与用户交流使用中文。
@@ -28,6 +35,14 @@
 - 坚持使用 Loguru（禁止 `logging` 模块），保留结构化输出。
 - 配置变更走 TOML + Pydantic 模型流程，确保示例配置 (`config/example.toml`) 与测试同步。
 - 控制依赖数量，若现有库可满足需求，避免额外引入。
+
+### Clean code checklist
+- 遵循标准命名：描述性、可搜索、可发音，消除魔法数，以常量取代。
+- 小函数、单一职责、无副作用；避免布尔开关参数，优先拆分方法。
+- 使用早返回、`break`/`continue`、专用对象来减少嵌套与逻辑耦合。
+- 注释只用于表达意图或重要警告，勿冗余、勿保留注释掉的代码。
+- 结构整洁：相关逻辑上下相邻，变量贴近使用位置，保持合理空行与缩进。
+- 测试要快、独立、可重复，并针对变更补齐覆盖。
 
 ## Build & test commands
 - 全量测试：
@@ -55,6 +70,7 @@
 - 前端/控制台改动需说明部署与鉴权方式；调度/指标改动需记录采集方式与监控入口。
 
 ## Additional tips
+- SQL 语句保持全大写关键字、4 空格缩进、禁止 `SELECT *`，并为复杂逻辑添加注释。
 - Scheduler 日志默认写入 `logs/scheduler.log`（Loguru JSON），指标通过 `/metrics` 暴露。
 - 处理配置或鉴权时，优先复用现有 Pydantic 模型与 FastAPI 依赖注入。
 - 若需参考外部规范或已有实现，可查看 `reference/` 子模块及 `devlog` 历史记录。
