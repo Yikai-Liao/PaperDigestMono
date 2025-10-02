@@ -5,6 +5,8 @@ from __future__ import annotations
 from .app import AppConfig
 from .backup import BackupConfig, BackupDestinationConfig
 from .base import BaseConfig, load_config
+from .embedding import EmbeddingConfig, EmbeddingModelConfig
+from .ingestion import IngestionConfig
 from .llm import LLMConfig
 from .recommend import (
     DataConfig,
@@ -22,6 +24,9 @@ __all__ = [
     "load_config",
     "BackupConfig",
     "BackupDestinationConfig",
+    "EmbeddingConfig",
+    "EmbeddingModelConfig",
+    "IngestionConfig",
     "LLMConfig",
     "DataConfig",
     "LogisticRegressionConfig",

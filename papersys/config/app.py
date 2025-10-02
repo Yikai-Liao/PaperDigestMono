@@ -8,6 +8,8 @@ from pydantic import Field
 
 from papersys.config.backup import BackupConfig
 from papersys.config.base import BaseConfig
+from papersys.config.embedding import EmbeddingConfig
+from papersys.config.ingestion import IngestionConfig
 from papersys.config.llm import LLMConfig
 from papersys.config.recommend import RecommendPipelineConfig
 from papersys.config.scheduler import SchedulerConfig
@@ -24,6 +26,8 @@ class AppConfig(BaseConfig):
     logging_level: str = Field("INFO", description="Log level: DEBUG, INFO, WARNING, ERROR")
 
     # New pipeline configurations
+    ingestion: IngestionConfig | None = Field(None, description="Metadata ingestion configuration")
+    embedding: EmbeddingConfig | None = Field(None, description="Embedding generation configuration")
     recommend_pipeline: RecommendPipelineConfig | None = None
     summary_pipeline: SummaryPipelineConfig | None = None
     scheduler: SchedulerConfig | None = Field(None, description="Scheduler configuration")

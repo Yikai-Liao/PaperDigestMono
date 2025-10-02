@@ -6,10 +6,70 @@ scheduler_enabled = true
 embedding_models = ["jasper_v1"]
 logging_level = "INFO"
 
+# Ingestion configuration
+[ingestion]
+enabled = true
+output_dir = "metadata/raw/arxiv"
+curated_dir = "metadata/curated"
+start_date = ""  # Leave empty for continuous mode
+end_date = ""
+batch_size = 1000
+max_retries = 3
+retry_delay = 5.0
+oai_base_url = "http://export.arxiv.org/oai2"
+metadata_prefix = "arXiv"
+categories = ["cs.CL", "cs.CV", "cs.AI", "cs.LG", "stat.ML"]
+save_raw_responses = false
+
+# Embedding configuration
+[embedding]
+enabled = true
+output_dir = "embeddings"
+auto_fill_backlog = true
+backlog_priority = "recent_first"
+max_parallel_models = 1
+checkpoint_interval = 1000
+upload_to_hf = false
+hf_repo_id = "lyk/ArxivEmbedding"
+hf_token = "env:HF_TOKEN"
+
+[[embedding.models]]
+alias = "jasper_v1"
+name = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+batch_size = 32
+max_length = 512
+device = ""  # Auto-detect
+precision = "float32"
+
+[[embedding.models]]
+alias = "conan_v1"
+name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+dimension = 384
+batch_size = 32
+max_length = 512
+device = ""
+precision = "float32"
+
 # Scheduler configuration
 [scheduler]
 enabled = true
 timezone = "Asia/Shanghai"
+
+[scheduler.ingest_job]
+enabled = true
+name = "arxiv-ingestion"
+cron = "0 2 * * *"  # Daily at 2 AM
+
+[scheduler.embed_job]
+enabled = true
+name = "embedding-generation"
+cron = "30 2 * * *"  # Daily at 2:30 AM
+
+[scheduler.embedding_backfill_job]
+enabled = true
+name = "embedding-backfill"
+cron = "0 4 * * 0"  # Weekly on Sunday at 4 AM
 
 [scheduler.recommend_job]
 enabled = true

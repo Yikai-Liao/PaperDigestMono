@@ -223,6 +223,28 @@ def _report_system_status(config: AppConfig) -> None:
     else:
         logger.info("No legacy embedding models configured")
 
+    logger.info("\n=== Ingestion Configuration ===")
+    if config.ingestion:
+        ing = config.ingestion
+        logger.info("Enabled: {}", ing.enabled)
+        logger.info("Output dir: {}", ing.output_dir)
+        logger.info("Categories: {}", ", ".join(ing.categories) if ing.categories else "all")
+        logger.info("Batch size: {}, Max retries: {}", ing.batch_size, ing.max_retries)
+    else:
+        logger.info("Not configured")
+
+    logger.info("\n=== Embedding Configuration ===")
+    if config.embedding:
+        emb = config.embedding
+        logger.info("Enabled: {}", emb.enabled)
+        logger.info("Output dir: {}", emb.output_dir)
+        logger.info("Auto-fill backlog: {}", emb.auto_fill_backlog)
+        logger.info("Configured models: {}", len(emb.models))
+        for model in emb.models:
+            logger.info("  - {}: {} (dim={})", model.alias, model.name, model.dimension)
+    else:
+        logger.info("Not configured")
+
     logger.info("\n=== Recommendation Pipeline ===")
     if config.recommend_pipeline:
         rp = config.recommend_pipeline
