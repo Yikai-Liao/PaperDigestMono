@@ -59,7 +59,7 @@ class StubContentFetcher:
         target = self.output_dir / f"{source.paper_id}.pdf"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         target.write_bytes(_placeholder_pdf_bytes(source))
-        logger.debug("Stub PDF created for %s at %s", source.paper_id, target)
+        logger.debug("Stub PDF created for {} at {}", source.paper_id, target)
         return FetchResult(pdf_path=target, markdown_context=_basic_context(source))
 
 
@@ -108,7 +108,7 @@ class ArxivContentFetcher:
 
         if markdown is None:
             logger.error(
-                "Skipping %s: failed to extract Markdown from LaTeX and PDF sources",
+                "Skipping {}: failed to extract Markdown from LaTeX and PDF sources",
                 source.paper_id,
             )
             raise ContentUnavailableError(f"Unable to extract Markdown for {source.paper_id}")
@@ -126,13 +126,13 @@ class ArxivContentFetcher:
         last_error: Exception | None = None
         for attempt in range(1, self.max_retry + 1):
             try:
-                logger.info("Downloading PDF for %s (attempt %d)", source.paper_id, attempt)
+                logger.info("Downloading PDF for {} (attempt {})", source.paper_id, attempt)
                 data = _http_get(url)
                 target.write_bytes(data)
                 return target
             except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
                 last_error = exc
-                logger.warning("PDF fetch failed for %s: %s", source.paper_id, exc)
+                logger.warning("PDF fetch failed for {}: {}", source.paper_id, exc)
                 if attempt < self.max_retry and self.delay:
                     time.sleep(self.delay)
         raise RuntimeError(f"Failed to download PDF for {source.paper_id}: {last_error}")
@@ -143,10 +143,10 @@ class ArxivContentFetcher:
             return target
         url = f"https://export.arxiv.org/e-print/{source.paper_id}"
         try:
-            logger.info("Downloading LaTeX source for %s", source.paper_id)
+            logger.info("Downloading LaTeX source for {}", source.paper_id)
             payload = _http_get(url)
         except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
-            logger.warning("Failed to download LaTeX for %s: %s", source.paper_id, exc)
+            logger.warning("Failed to download LaTeX for {}: {}", source.paper_id, exc)
             return None
         target.write_bytes(payload)
         return target
@@ -158,7 +158,7 @@ class ArxivContentFetcher:
         try:
             return converter.convert(archive_path)
         except MarkdownExtractionError as exc:
-            logger.warning("LaTeX conversion failed for %s: %s", paper_id, exc)
+            logger.warning("LaTeX conversion failed for {}: {}", paper_id, exc)
             return None
 
     def _convert_pdf_with_marker(self, pdf_path: Path, paper_id: str) -> str | None:
@@ -171,7 +171,7 @@ class ArxivContentFetcher:
         try:
             return converter.convert(pdf_path, paper_id)
         except MarkdownExtractionError as exc:
-            logger.warning("Marker conversion failed for %s: %s", paper_id, exc)
+            logger.warning("Marker conversion failed for {}: {}", paper_id, exc)
             self._marker_unavailable = True
             return None
 
@@ -183,7 +183,7 @@ class ArxivContentFetcher:
         try:
             self.latex_converter = LatexToMarkdownConverter()
         except MarkdownExtractionError as exc:
-            logger.warning("Unable to initialise latex2json converter: %s", exc)
+            logger.warning("Unable to initialise latex2json converter: {}", exc)
             self._latex_converter_failed = True
             return None
         return self.latex_converter
@@ -196,7 +196,7 @@ class ArxivContentFetcher:
                 timeout=self.marker_timeout,
             )
         except Exception as exc:  # pragma: no cover - constructor expected to succeed
-            logger.warning("Unable to initialise marker converter: %s", exc)
+            logger.warning("Unable to initialise marker converter: {}", exc)
             return None
         return self.marker_converter
 

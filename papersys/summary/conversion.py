@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from loguru import logger
+from wrapt_timeout_decorator import timeout
 
 try:  # pragma: no cover - optional dependency guard
     from latex2json import TexReader  # type: ignore[import-not-found]
@@ -374,21 +375,36 @@ class JsonToMarkdownConverter:
         return ""
 
 
+DEFAULT_LATEX_TIMEOUT_SECONDS = 10
+
+
+@timeout(dec_timeout=DEFAULT_LATEX_TIMEOUT_SECONDS, use_signals=False)
+def _render_latex_archive(path: str, dec_timeout: float | None = None) -> str:
+    from latex2json import TexReader  # type: ignore[import-not-found]
+
+    reader = TexReader()
+    result = reader.process(path, cleanup=False)
+    return reader.to_json(result, merge_inline_tokens=True)
+
+
 class LatexToMarkdownConverter:
     """Run latex2json and convert the output to Markdown."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, timeout: int = DEFAULT_LATEX_TIMEOUT_SECONDS) -> None:
         if TexReader is None:  # pragma: no cover - guarded by optional dependency
             raise MarkdownExtractionError("latex2json is not available")
-        self._reader = TexReader()
+        self._timeout = timeout
         self._silence_logging()
         self._json_converter = JsonToMarkdownConverter()
 
     def convert(self, archive_path: Path) -> str:
         try:
-            logger.debug("Processing LaTeX archive %s via latex2json", archive_path)
-            result = self._reader.process(str(archive_path), cleanup=False)
-            json_output = self._reader.to_json(result, merge_inline_tokens=True)
+            logger.debug("Processing LaTeX archive {} via latex2json", archive_path)
+            json_output = _render_latex_archive(str(archive_path), dec_timeout=self._timeout)
+        except TimeoutError as exc:
+            raise MarkdownExtractionError(
+                f"latex2json timed out after {self._timeout}s"
+            ) from exc
         except Exception as exc:  # noqa: BLE001
             raise MarkdownExtractionError(f"latex2json failed: {exc}") from exc
         try:
@@ -416,7 +432,7 @@ class LatexToMarkdownConverter:
 
 
 class MarkerMarkdownConverter:
-    """Use marker-pdf CLI to convert PDFs into Markdown."""
+    """Convert PDFs into Markdown using marker (Python API or CLI)."""
 
     def __init__(
         self,
@@ -426,8 +442,38 @@ class MarkerMarkdownConverter:
     ) -> None:
         self._timeout = timeout
         self._executable = executable
+        self._python_converter = self._build_python_converter()
+        self._text_from_rendered = None
+        if self._python_converter is not None:
+            try:
+                from marker.output import text_from_rendered  # type: ignore[import-not-found]
+
+                self._text_from_rendered = text_from_rendered
+            except Exception as exc:  # pragma: no cover - import side effects
+                logger.warning("Failed to prepare marker python renderer: {}", exc)
+                self._python_converter = None
+
+    def _build_python_converter(self):
+        try:
+            from marker.converters.pdf import PdfConverter  # type: ignore[import-not-found]
+            from marker.models import create_model_dict  # type: ignore[import-not-found]
+        except ImportError:
+            logger.debug("marker python package not available for inline conversion")
+            return None
+        try:
+            converter = PdfConverter(artifact_dict=create_model_dict())
+        except Exception as exc:  # pragma: no cover - marker setup can fail
+            logger.warning("Initialising marker PdfConverter failed: {}", exc)
+            return None
+        return converter
 
     def convert(self, pdf_path: Path, paper_id: str) -> str:
+        if self._python_converter is not None and self._text_from_rendered is not None:
+            try:
+                return self._convert_with_python(pdf_path)
+            except Exception as exc:  # pragma: no cover - marker runtime failures
+                logger.warning("Marker python conversion failed for {}: {}", paper_id, exc)
+
         if shutil.which(self._executable) is None:
             raise MarkdownExtractionError("marker executable not found in PATH")
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -445,7 +491,7 @@ class MarkerMarkdownConverter:
                 "--output_dir",
                 str(output_dir),
             ]
-            logger.debug("Running marker for %s", paper_id)
+            logger.debug("Running marker for {}", paper_id)
             try:
                 result = subprocess.run(
                     command,
@@ -467,6 +513,15 @@ class MarkerMarkdownConverter:
             if not markdown.strip():
                 raise MarkdownExtractionError("marker produced empty Markdown")
             return markdown
+
+    def _convert_with_python(self, pdf_path: Path) -> str:
+        if self._python_converter is None or self._text_from_rendered is None:
+            raise RuntimeError("Marker python converter is not initialised")
+        rendered = self._python_converter(str(pdf_path))
+        text, _, _ = self._text_from_rendered(rendered)
+        if not isinstance(text, str) or not text.strip():
+            raise MarkdownExtractionError("marker produced empty Markdown")
+        return text
 
 
 __all__ = [

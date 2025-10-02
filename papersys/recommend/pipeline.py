@@ -44,7 +44,7 @@ class RecommendationPipeline:
         )
         logger.info("Embeddings root: {}", sources.embeddings_root)
         for alias, directory in sources.embedding_dirs().items():
-            logger.info("  - embedding[%s]: %s", alias, directory)
+            logger.info("  - embedding[{}]: {}", alias, directory)
         if sources.summarized_dir is not None:
             logger.info("Summarized directory: {}", sources.summarized_dir)
         if missing:

@@ -139,7 +139,7 @@ class BackupService:
             for source in backup_cfg.sources:
                 source_path = Path(source).expanduser()
                 if not source_path.exists():
-                    logger.warning("Backup source %s does not exist; skipping.", source_path)
+                    logger.warning("Backup source {} does not exist; skipping.", source_path)
                     continue
 
                 for file_path, arcname in self._iter_source_files(source_path):
@@ -231,7 +231,7 @@ class BackupService:
             reverse=True,
         )
         for old_file in archives[backup_cfg.retention :]:
-            logger.info("Removing expired local backup %s", old_file)
+            logger.info("Removing expired local backup {}", old_file)
             old_file.unlink(missing_ok=True)
 
 

@@ -209,21 +209,21 @@ def _validate_outputs(artifacts: Iterable, *, run_dir: Path) -> None:
         if not markdown_path.exists():
             logger.warning("[{}] Markdown missing: {}", idx, markdown_path)
         logger.info(
-            "[%d] Summary generated | pdf=%s | markdown=%s | sections=%s",
+            "[{}] Summary generated | pdf={} | markdown={} | sections={}",
             idx,
             pdf_path.relative_to(run_dir),
             markdown_path.relative_to(run_dir),
             list(artifact.document.sections.keys()),
         )
         snippet = "\n".join(artifact.markdown.splitlines()[:12])
-        logger.info("[%d] Markdown snippet:\n%s", idx, snippet)
+        logger.info("[{}] Markdown snippet:\n{}", idx, snippet)
 
 
 def main() -> None:
     args = _parse_args()
 
     if not args.config.exists():
-        logger.error("Config file not found: %s", args.config)
+        logger.error("Config file not found: {}", args.config)
         sys.exit(1)
 
     config = load_config(AppConfig, args.config)
@@ -236,7 +236,7 @@ def main() -> None:
     try:
         llm_cfg = _ensure_llm_ready(config)
     except EnvironmentError as exc:
-        logger.error("Missing LLM credentials: %s", exc)
+        logger.error("Missing LLM credentials: {}", exc)
         sys.exit(1)
     except RuntimeError as exc:
         logger.error(str(exc))
@@ -249,8 +249,13 @@ def main() -> None:
         force_fetch_latex=args.fetch_latex,
     )
 
-    logger.info("Run directory: %s", run_dir)
-    logger.info("Using LLM alias '%s' (model=%s, base_url=%s)", llm_cfg.alias, llm_cfg.name, llm_cfg.base_url)
+    logger.info("Run directory: {}", run_dir)
+    logger.info(
+        "Using LLM alias '{}' (model={}, base_url={})",
+        llm_cfg.alias,
+        llm_cfg.name,
+        llm_cfg.base_url,
+    )
 
     recommendation = RecommendationPipeline(runtime_config)
     recommendation.describe_sources()
@@ -258,7 +263,7 @@ def main() -> None:
     try:
         artifacts = recommendation.run(force_include_all=args.force_include_all)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Recommendation pipeline failed: %s", exc)
+        logger.exception("Recommendation pipeline failed: {}", exc)
         sys.exit(1)
 
     dataset = artifacts.dataset
@@ -273,13 +278,13 @@ def main() -> None:
 
     summary_language = runtime_config.summary_pipeline.llm.language  # type: ignore[union-attr]
     sources = _select_sources(recommended, language=summary_language, limit=args.limit)
-    logger.info("Preparing to summarise %d papers (language=%s)", len(sources), summary_language)
+    logger.info("Preparing to summarise {} papers (language={})", len(sources), summary_language)
 
     summary_pipeline = SummaryPipeline(runtime_config)
     try:
         outputs = summary_pipeline.run(sources)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Summary pipeline failed: %s", exc)
+        logger.exception("Summary pipeline failed: {}", exc)
         sys.exit(1)
 
     if not outputs:
@@ -287,13 +292,13 @@ def main() -> None:
     else:
         if len(outputs) < len(sources):
             logger.warning(
-                "Summary pipeline produced %d of %d requested artefacts (some papers were skipped)",
+                "Summary pipeline produced {} of {} requested artefacts (some papers were skipped)",
                 len(outputs),
                 len(sources),
             )
         _validate_outputs(outputs, run_dir=run_dir)
 
-    logger.info("Run complete. Inspect artefacts under %s", run_dir)
+    logger.info("Run complete. Inspect artefacts under {}", run_dir)
 
 
 if __name__ == "__main__":

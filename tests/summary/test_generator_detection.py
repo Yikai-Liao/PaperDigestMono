@@ -143,3 +143,41 @@ def test_litellm_client_handles_missing_response_format(monkeypatch: pytest.Monk
     assert sections["Highlights"] == "OK"
     completion_kwargs = cast(dict[str, Any], captured["completion_kwargs"])
     assert "response_format" not in completion_kwargs
+
+
+def test_litellm_client_sets_google_ai_studio_provider(monkeypatch: pytest.MonkeyPatch, llm_config: LLMConfig) -> None:
+    from papersys.summary import generator
+
+    captured: dict[str, Any] = {}
+
+    def fake_completion(**kwargs):
+        captured["completion_kwargs"] = kwargs
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps({"highlights": ["OK"], "summary": "done"})
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(generator.litellm, "completion", fake_completion)
+
+    config = llm_config.model_copy(
+        update={
+            "name": "gemini/gemini-2.5-flash",
+            "base_url": "",  # LiteLLM auto-routes via model prefix
+            "reasoning_effort": "low",
+        }
+    )
+
+    client = generator._LiteLLMClient(config, api_base=config.base_url)
+    sections = client.summarise(_fake_source(), language="en")
+
+    assert sections["Highlights"] == "OK"
+    completion_kwargs = cast(dict[str, Any], captured["completion_kwargs"])
+    # Should NOT have custom_llm_provider or api_base since LiteLLM handles routing
+    assert "custom_llm_provider" not in completion_kwargs
+    assert "api_base" not in completion_kwargs
+    assert completion_kwargs["reasoning_effort"] == "low"

@@ -123,7 +123,7 @@ class SummaryPipeline:
             try:
                 fetch_result: FetchResult = self._fetcher.fetch(source)
             except ContentUnavailableError as exc:
-                logger.warning("Skipped summary for %s: %s", source.paper_id, exc)
+                logger.warning("Skipped summary for {}: {}", source.paper_id, exc)
                 continue
             document = self._generator.generate(source, context=fetch_result.markdown_context)
             markdown = self._renderer.render(document)

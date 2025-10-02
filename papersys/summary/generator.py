@@ -87,7 +87,7 @@ def _guess_custom_provider(base_url: str | None) -> str | None:
     provider_hints: tuple[tuple[str, str], ...] = (
         ("bedrock", "bedrock"),
         ("anthropic", "anthropic"),
-        ("generativelanguage.googleapis", "google_ai"),
+        ("generativelanguage.googleapis", "google_ai_studio"),
         ("googleapis.com", "google_ai"),
         ("vertex", "vertex_ai"),
         ("azure", "azure"),
@@ -227,7 +227,7 @@ class _LiteLLMClient:
             "api_key": self.api_key,
         }
 
-        if self.api_base:
+        if self.api_base and self.api_base.strip():
             call_kwargs["api_base"] = self.api_base
 
         if self.config.reasoning_effort:

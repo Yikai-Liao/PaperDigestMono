@@ -166,8 +166,8 @@ num_workers = 10
 
 [[llms]]
 alias = "gemini-2.5-flash"
-name = "gemini-2.5-flash"
-base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+name = "gemini/gemini-2.5-flash"
+base_url = ""  # LiteLLM auto-routes via model prefix
 api_key = "env:GEMINI_API_KEY"
 temperature = 0.1
 top_p = 0.8
