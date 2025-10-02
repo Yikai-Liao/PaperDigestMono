@@ -62,7 +62,7 @@ def test_app_config_example_file() -> None:
     # Backup configuration
     assert cfg.backup is not None
     assert cfg.backup.enabled is True
-    assert [str(path) for path in cfg.backup.sources] == ["./config", "./devlog", "./papersys"]
+    assert cfg.backup.sources == [Path("./config"), Path("./devlog"), Path("./papersys")]
     assert cfg.backup.destination.storage == "local"
     assert cfg.backup.destination.path == Path("./backups")
     assert cfg.backup.retention == 5

@@ -161,7 +161,7 @@ def _handle_config_command(args: argparse.Namespace, config_path: Path) -> int:
     if config_command == "check":
         result, exit_code, _ = check_config(config_path)
         if output_format == "json":
-            print(json.dumps(result, indent=2, ensure_ascii=False))
+            print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
             return exit_code
 
         if result["status"] == "ok":
@@ -184,14 +184,14 @@ def _handle_config_command(args: argparse.Namespace, config_path: Path) -> int:
     if config_command == "explain":
         fields = explain_config()
         if output_format == "json":
-            print(json.dumps({"fields": fields}, indent=2, ensure_ascii=False))
+            print(json.dumps({"fields": fields}, indent=2, ensure_ascii=False, default=str))
             return 0
 
         logger.info("Configuration schema ({} fields):", len(fields))
         for field in fields:
             default_value = field["default"]
             if isinstance(default_value, (dict, list)):
-                default_repr = json.dumps(default_value, ensure_ascii=False)
+                default_repr = json.dumps(default_value, ensure_ascii=False, default=str)
             elif default_value is None:
                 default_repr = "None"
             else:
