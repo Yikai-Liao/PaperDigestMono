@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import uvicorn
 from loguru import logger
 
 from .config import AppConfig, load_config
+from .config.inspector import check_config, explain_config
 from .recommend import RecommendationDataLoader
 from .scheduler import SchedulerService
 from .summary import SummaryPipeline
@@ -58,6 +60,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Set up the scheduler and report status without running the server",
     )
 
+    config_parser = subparsers.add_parser("config", help="Validate and document configuration files")
+    config_subparsers = config_parser.add_subparsers(dest="config_command")
+    if hasattr(config_subparsers, "required"):
+        config_subparsers.required = True  # type: ignore[attr-defined]
+
+    check_parser = config_subparsers.add_parser("check", help="Validate the configuration file")
+    check_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format for validation results",
+    )
+
+    explain_parser = config_subparsers.add_parser("explain", help="Describe available configuration fields")
+    explain_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format for configuration schema",
+    )
+
     return parser
 
 
@@ -66,10 +89,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config_path = args.config.resolve()
+    command = args.command
+
+    if command == "config":
+        return _handle_config_command(args, config_path)
+
     logger.info("Loading configuration from {}", config_path)
     config = load_config(AppConfig, config_path)
 
-    command = args.command
     if command is None:
         if args.dry_run:
             _report_system_status(config)
@@ -124,6 +151,63 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     logger.warning("Unknown command: {}", command)
+    return 1
+
+
+def _handle_config_command(args: argparse.Namespace, config_path: Path) -> int:
+    config_command = getattr(args, "config_command", None)
+    output_format = getattr(args, "format", "text")
+
+    if config_command == "check":
+        result, exit_code, _ = check_config(config_path)
+        if output_format == "json":
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return exit_code
+
+        if result["status"] == "ok":
+            logger.info("Configuration OK: {}", result["config_path"])
+            for warning in result["warnings"]:
+                logger.warning(warning)
+        else:
+            error = result["error"]
+            logger.error(
+                "Configuration error ({}) for {}: {}",
+                error["type"],
+                result["config_path"],
+                error["message"],
+            )
+            for detail in error.get("details", []):
+                location = detail["loc"] or "<root>"
+                logger.error("  - {}: {} ({})", location, detail["message"], detail["type"])
+        return exit_code
+
+    if config_command == "explain":
+        fields = explain_config()
+        if output_format == "json":
+            print(json.dumps({"fields": fields}, indent=2, ensure_ascii=False))
+            return 0
+
+        logger.info("Configuration schema ({} fields):", len(fields))
+        for field in fields:
+            default_value = field["default"]
+            if isinstance(default_value, (dict, list)):
+                default_repr = json.dumps(default_value, ensure_ascii=False)
+            elif default_value is None:
+                default_repr = "None"
+            else:
+                default_repr = str(default_value)
+            description = field["description"] or "(no description)"
+            logger.info(
+                "  - {name}: type={type}, required={required}, default={default}, description={description}",
+                name=field["name"],
+                type=field["type"],
+                required="yes" if field["required"] else "no",
+                default=default_repr,
+                description=description,
+            )
+        return 0
+
+    logger.warning("Unknown config subcommand: {}", config_command)
     return 1
 
 
