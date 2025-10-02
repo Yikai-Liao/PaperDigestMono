@@ -78,13 +78,75 @@
 
 ### 数据层设计
 
-- **元数据（metadata）**：按年份拆分的 CSV（可选 Parquet 以保留 schema），字段包含论文基础信息与数据版本号。
-- **嵌入（embeddings）**：每个模型 × 每个年份独立 Parquet，列格式 `[id, embedding: list[float32], stats]`（默认 `float16` 节省空间），允许并行新增模型。
-- **偏好（preferences）**：追加式 CSV/JSONL，记录事件时间、来源（giscus/notion/manual）。
-- **摘要（summaries）**：按 `year/month` 生成 JSONL，字段含 `paper_id、sections、model_meta`，方便 git diff。
-- **缓存（artifacts）**：PDF、LaTeX 中间件放入挂载卷，统一清理策略。
+#### 现有落地（参考仓库来源）
+- **ArxivEmbedding**（Hugging Face Dataset：`lyk/ArxivEmbedding`）
+  - 年度 Parquet：`<year>.parquet`，字段包含 `id`（arXiv ID）、`title`、`abstract`、`categories`（list[str]）、`created`、`updated`、`doi` 以及多个嵌入列（如 `Embedding.jasper_v1`、`Embedding.m3e_large`，类型 list[float64]）。
+  - GitHub Actions 负责上传至 Hugging Face，目录 `reference/ArxivEmbedding/script/` 中的 `incremental_embed_workflow.py` 使用本地缓存目录 `data/parquet/` 与 `data/cache/`。
+- **PaperDigest**（Hugging Face Dataset：`lyk/PaperDigestContent`）
+  - 推荐结果：`data/predictions.parquet`（列 `id`、`score`、`label`、`timestamp` 等）。
+  - 摘要产物：`raw/*.json`（结构化字段 `metadata`, `sections`, `highlights`）、`content/*.md`。
+  - 偏好事件：`preference/*.csv`，列含 `arxiv_id`、`preference`、`source`、`recorded_at`。
 
-所有数据以 `data/` 顶级目录分类，Docker 挂载本地硬盘；云端定期同步（见备份策略）。
+#### 新单例架构下的数据存储规划
+
+所有持久化数据统一放在仓库根目录的 `data/`，按照模块和生命周期拆分，形成可挂载、易迁移的层次结构：
+
+```
+data/
+  metadata/
+    raw/
+      arxiv/
+        YYYY/
+          arxiv-oai-YYYYMMDD.csv        # OAI-PMH/SR feed，列保持原始字段（UTF-8），换行通过 CSV 转义
+    curated/
+      metadata-YYYY.csv                 # 去重、标准化后的年度主表（详见下表）
+      latest.csv                        # 最近一次抓取的整合视图
+  embeddings/
+    <model_alias>/
+      YYYY.parquet                      # 列：paper_id, embedding (list[float32]), generated_at, source
+      manifest.json                     # 记录样本数、维度、上游模型信息
+      backlog.parquet                   # 需补齐 embedding 的 paper 列表（详见下文）
+  preferences/
+    events-YYYY.csv                     # 追加式事件流（逗号分隔，字符串按 CSV 规范转义）
+  summaries/
+    batched/
+      YYYY/MM.jsonl                     # 每月聚合 JSONL，字段含 paper_id、sections、model_meta
+  temp/
+    markdown/                           # 临时 Markdown，供静态站点构建后清理
+    pdf/                                # 下载的原始 PDF，缓存策略见运行规范
+    cache/                              # 其他短期缓存（向量块、下载中间件等）
+  backups/                              # 由 BackupService 输出的 tar.gz（受 retention 管控）
+```
+
+元数据与嵌入表的字段契约：
+
+| 数据集 | 必需字段 | 可选字段 | 说明 |
+| --- | --- | --- | --- |
+| `metadata/curated/metadata-YYYY.csv` | `paper_id`、`title`、`abstract`、`categories`（以 `;` 分隔的 ISO cats）、`published_at`、`updated_at`、`primary_category` | `doi`、`authors`（`;` 分隔）、`comment`、`journal_ref`、`versions`（JSON 字符串）、`ingested_at` | 字符串使用 UTF-8；含换行内容需经 CSV 规范转义 |
+| `embeddings/<model_alias>/YYYY.parquet` | `paper_id`、`embedding` (list[float32])、`model_dim` (int)、`generated_at` (UTC ISO) | `hash`（向量哈希）、`version`（模型权重标记）、`source`（local/hf/manual） | `embedding` 推荐使用 `float32`；若需节省空间可在迁移脚本中转 `float16` |
+| `embeddings/<model_alias>/backlog.parquet` | `paper_id`、`origin`（metadata/legacy/import）、`missing_reason`、`queued_at` | `priority`、`retry_count` | 记录待补齐的论文列表，调度器据此分配任务 |
+| `preferences/events-YYYY.csv` | `paper_id`、`preference`（enum: like/dislike/neutral）、`recorded_at` | `source`、`confidence`、`note` | 引擎按 CSV 附加模式写入；字符串需转义 |
+
+#### 路径与访问策略
+- 所有读写通过 `AppConfig.data_root` 解析，允许相对/绝对路径；调度器、CLI 默认指向仓库根下 `data/`。
+- 元数据抓取结果直接写入 CSV；若需保存原始 OAI 响应，可额外启用 Debug 选项输出至 `metadata/raw/arxiv/debug/`（默认关闭）。
+- 迁移脚本 `scripts/migrate_reference_embeddings.py` 将历史 Parquet 拆分为 `metadata/curated/*.csv` 与 `embeddings/<model>/*.parquet`，同时生成 `backlog.parquet` 以标记缺失向量。
+- `SummaryPipeline` 仅保留 JSONL 结构化文件；Markdown/PDF 等临时工件放入 `temp/`，完成发布或打包后由任务删除，避免占用空间。
+- 备份服务打包 `data/`、`logs/`、`config/` 至 `backups/`（或远端），恢复时依据 MANIFEST 还原。
+
+#### 自动化补齐策略
+- 新增 `EmbeddingConfig` 支持 `auto_fill_backlog=true`；当配置中引入新模型时，迁移脚本会根据历史 `metadata` 生成 backlog，写入 `embeddings/<model>/backlog.parquet`。
+- `EmbeddingService` 启动时检测 backlog：
+  - 首先判断运行环境（CUDA、Metal、CPU）。服务会在初始化时探测 `torch.cuda.is_available()`、`torch.backends.mps.is_available()`，选择最优执行器（优先 CUDA > Apple Metal > CPU），并允许通过配置覆写。
+  - 根据 backlog 分批拉取待处理论文，按模型配置（batch_size、precision、device）生成向量。
+  - 成功写入后从 backlog 移除记录，并将结果追加至 `embeddings/<model>/YYYY.parquet`，更新 `manifest.json`。
+- 对于旧数据的补齐：
+  - 增加 CLI `embed autopatch --model <alias>`，读取 backlog 并执行批量补齐，可附带 `--from-year`、`--limit`。
+  - 调度器新增 `embedding_backfill_job`，周期性检查 backlog，避免遗漏历史论文。
+
+#### 目录忽略策略
+- `data/`、`backups/`、`.tmp-backups/` 等运行目录已加入 `.gitignore`，临时目录（`temp/`）默认也忽略。
+- 若需要提交目录结构，可放置 `.gitkeep` 并在文档说明用途。
 
 ### 配置管理策略
 
@@ -184,16 +246,22 @@
 
 ### 备份与同步策略（已落地）
 
-- **核心服务**：`BackupService` (`papersys/backup/service.py`) 根据 `BackupConfig` 收集配置、日志、模型等目录，生成带有 `MANIFEST.json` 的 `tar.gz` 归档，并调用可插拔上传器完成持久化。失败时会删除临时文件，避免碎片残留。
-- **上传实现**：
-  - `LocalUploader` 将归档复制到指定目录，并依据 `retention` 保留最近 N 份，便于离线恢复或同步至 NAS。
-  - `HuggingFaceDatasetUploader` 复用既有 `huggingface_hub` 依赖，将归档推送至私有 Dataset 仓库；`token` 字段支持 `env:VAR` 解析。
-- **调度集成**：`scheduler.backup_job` 控制执行频率，`SchedulerService` 会在 dry-run 模式下跳过上传但记录计划任务，正式运行成功后自动清理 staging 目录并刷新 metrics。
-- **配置要点**：
-  - `backup.sources` 列出需要保护的目录或文件，支持混合路径与 glob 排除规则。
-  - 本地模式需设置 `backup.destination.path` 并留意磁盘容量；远程模式提供 `repo_id`/`repo_path` 与 `token`。
-  - 通过 `backup.retention` 管理本地保留数量，避免目录无限增长。
-  - 若临时禁用备份，可将 `backup.enabled` 设为 `false`，调度器会保留作业但实际运行时记录“disabled”日志并快速返回。
+- **核心理念**：将不同数据域拆分为可独立管理的“备份通道”。Embedding 大文件可落地 NAS 或 Hugging Face，纯文本内容可继续 Git 版本控制，配置与日志可保留本地 tar 包。`BackupService` 升级为 orchestrator，支持多目标并发执行。
+- **配置模型调整**：`BackupConfig` 将 `destination` 扩展为列表，每个元素包含 `name`、`mode`（`local` / `huggingface` / `git` / `s3` 等）、`include`（路径或 glob）、`exclude`、`retention`、`options`（目标特定参数，如 `repo_id`、`branch`、`s3_bucket`）。
+- **执行流程**：
+  1. 加载各目标配置，针对 `include` 列表解析文件集。
+  2. 对于 `local` 目的地，按照通道名称分别生成 tar.gz，保留 `MANIFEST.json`，并执行保留策略。
+  3. 对于 `huggingface`，使用现有上传器将指定 Parquet 或 CSV 推送到 Dataset；如果选项开启 `delta_mode`，允许仅上传增量 diff。
+  4. 对于 `git` 模式，仅执行变更检测和提醒，不自动提交；给出待同步目录列表，供人工 commit。
+  5. 对于 `s3` 或未来扩展，使用相应 SDK 上传文件（`options` 指定 bucket、prefix 等）。
+  6. 汇总通道执行结果（成功、跳过、失败）写入统一报告；失败不会短路其他通道，但会在 CLI/日志中标记并返回非零状态。
+- **调度集成**：`scheduler.backup_job` 支持按通道选择执行。例如配置每日同步 Hugging Face Embedding、每周生成本地 tar 包、即时提醒 Git 同步状态。Dry-run 模式下输出将要触发的通道与预计文件大小。
+- **典型场景**：
+  - 本地 NAS：`mode=local`， `include=['data/embeddings']`，每日保留最近 3 份。
+  - Hugging Face：`mode=huggingface`， `include=['data/embeddings/*.parquet']`，`options.repo_id='lyk/ArxivEmbedding'`。
+  - Git 内容：`mode=git`， `include=['data/summaries/batched','config/']`，调度器只提示未提交内容，避免误把 Git 管理的文件打包上传。
+  - S3 冷备：`mode=s3`， `include=['backups/*.tar.gz']`，`options.bucket='papersys-backups'`。
+- **回滚与验证**：每个通道生成自身的 MANIFEST/校验和；本地 tar 包保持原策略。恢复时根据通道类型执行反向操作（下载 tar、从 HF Dataset 拉取最新 Parquet、复刻 Git 提交等）。
 
 ### 迁移步骤（建议）
 

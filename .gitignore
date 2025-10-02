@@ -1,2 +1,6 @@
 **/*.pyc
 logs/
+data/
+backups/
+.tmp-backups/
+temp/
