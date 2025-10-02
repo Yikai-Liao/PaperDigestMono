@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 
 [[package]]
@@ -1559,6 +1559,7 @@ dependencies = [
     { name = "timeout-decorator" },
     { name = "toml" },
     { name = "torch" },
+    { name = "typer" },
     { name = "uvicorn" },
 ]
 
@@ -1586,6 +1587,7 @@ requires-dist = [
     { name = "timeout-decorator", specifier = ">=0.5.0" },
     { name = "toml", specifier = ">=0.10.2" },
     { name = "torch", specifier = ">=2.8.0" },
+    { name = "typer", specifier = ">=0.19.2" },
     { name = "uvicorn", specifier = ">=0.37.0" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.10.2", index = "https://wheels.vllm.ai/0.10.2/" },
 ]
