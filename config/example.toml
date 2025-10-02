@@ -1,4 +1,6 @@
 # Minimal runtime configuration for papersys
+# Validate with: uv run --no-progress python -m papersys.cli config check --format text
+# Inspect schema: uv run --no-progress python -m papersys.cli config explain
 
 # Legacy/general settings
 data_root = "./data"

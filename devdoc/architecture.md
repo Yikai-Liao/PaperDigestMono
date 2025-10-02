@@ -118,6 +118,14 @@
 
 示例配置 `config/example.toml` 包含完整字段，单元测试 `tests/config/test_*.py` 覆盖各层级读取与严格性校验，CLI `status --dry-run` 输出详细状态。
 
+### 配置可观测性工具
+
+- 新增 `config` CLI 子命令：
+  - `uv run --no-progress python -m papersys.cli config check` 会读取指定 `--config` 文件并输出校验结果，支持 `--format text|json`，CI 可解析 JSON 检查 `status/warnings`。
+  - `uv run --no-progress python -m papersys.cli config explain` 生成字段说明，文本模式通过日志打印层级结构，JSON 模式返回机器可读的字段数组。
+- 检查流程会提示弃用字段（如 `data_root`/`embedding_models`）与缺失的关键模块配置，帮助上线前发现问题。
+- `config/example.toml` 在文件头追加了命令提示，便于新用户快速完成自检。
+
 ### 运行编排与调度
 
 - **核心调度器**：使用 `APScheduler` 或 `Prefect` 在本地长驻进程中管理每日任务（爬虫→嵌入→推荐→摘要→发布）。
