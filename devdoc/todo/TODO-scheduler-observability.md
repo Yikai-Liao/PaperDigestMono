@@ -5,15 +5,21 @@
 - Provide visibility into cron triggers, runtime durations, failure counts, and next-run schedules without altering existing job semantics.
 
 ## Deliverables
-1. Structured Loguru logging with clear context (job id, run id, status, latency) routed to both console and rotating file sinks.
-2. A lightweight metrics exporter (e.g., FastAPI endpoint `/metrics` or Prometheus-compatible generator) that reports job stats updated after each execution.
-3. Unit tests covering the metrics collector and log formatting helpers.
-4. Documentation updates explaining how to enable/consume the new observability features.
+1. ✅ Structured Loguru logging with clear context (job id, run id, status, latency) routed to both console and rotating file sinks.
+2. ✅ A lightweight metrics exporter (FastAPI `/metrics` endpoint) that reports job stats updated after each execution.
+3. ✅ Unit tests covering the metrics collector, Prometheus exporter, and dry-run/success/failure scenarios.
+4. ✅ Documentation updates explaining how to enable/consume the new observability features.
 
 ## Constraints & Notes
 - Keep concurrency concerns minimal: rely on in-memory aggregation guarded by simple locks if needed.
 - Ensure the solution stays dependency-light; prefer standard library + existing packages (FastAPI, Loguru) over new observability stacks.
 - Preserve dry-run behavior: metrics/logging should still emit simulated runs without side effects.
+
+## Completion Notes
+- `SchedulerService` 现已在每次作业执行时输出结构化日志（JSON 序列化到 `logs/scheduler.log`），并通过 `SchedulerMetricsRegistry` 跟踪成功/失败/干跑次数、最近一次耗时和下一次调度时间。
+- FastAPI 应用新增 `/metrics` 端点，返回 Prometheus 文本格式，可直接被 Prometheus/Grafana 抓取。
+- 新增 pytest 覆盖成功、失败、dry-run、Prometheus 输出以及 FastAPI metrics 端点。
+- 架构文档同步更新，记录使用方式与指标内容。
 
 ## Suggested Branch Name
 `feat/scheduler-observability`

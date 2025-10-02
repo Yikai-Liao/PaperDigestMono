@@ -140,19 +140,22 @@
 为了实现本地优先的自动化流程，系统引入了基于 `APScheduler` 的调度服务和基于 `FastAPI` 的轻量级 Web 控制台。
 
 - **`SchedulerService` (`papersys/scheduler/service.py`)**:
-  - **职责**: 管理所有周期性作业（如推荐、摘要）。
+  - **职责**: 管理所有周期性作业（如推荐、摘要），并收集运行时指标。
   - **功能**:
     - 根据 `config.toml` 中的 `scheduler` 配置动态注册和管理作业。
-    - 支持 `dry-run` 模式，用于验证作业配置而不实际执行。
+    - 支持 `dry-run` 模式，用于验证作业配置而不实际执行，同时记录模拟执行指标。
     - 提供优雅的启动和关闭接口，与 Web 服务生命周期集成。
+    - 为每次执行输出结构化日志（含 `job_id/run_id/status/latency`），日志写入 `logs/scheduler.log` 的滚动文件。
+    - 内建 Prometheus 友好的指标注册表，追踪成功/失败/干跑次数、最后一次耗时、下一次运行时间。
 
 - **FastAPI Web 应用 (`papersys/web/app.py`)**:
   - **职责**: 提供一个用于监控和手动控制的 HTTP API 接口。
   - **启动**: 通过 CLI 命令 `uv run python -m papersys.cli serve` 启动。
   - **API 端点**:
     - `GET /health`: 健康检查接口，返回服务状态。
-    - `GET /jobs`: 列出所有在调度器中注册的作业及其状态。
+    - `GET /jobs`: 列出所有在调度器中注册的作业及其状态（包含下一次运行时间）。
     - `POST /scheduler/run/{job_id}`: 手动触发一个指定的作业立即执行。
+    - `GET /metrics`: 返回 Prometheus 文本格式的调度器指标，可直接被 Prometheus/Grafana 抓取。
 
 - **CLI `serve` 命令**:
   - **功能**: 作为调度器和 Web 服务的统一入口点。
