@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from papersys.config.backup import BackupConfig
 from papersys.config.base import BaseConfig
 from papersys.config.llm import LLMConfig
 from papersys.config.recommend import RecommendPipelineConfig
@@ -26,6 +27,7 @@ class AppConfig(BaseConfig):
     recommend_pipeline: RecommendPipelineConfig | None = None
     summary_pipeline: SummaryPipelineConfig | None = None
     scheduler: SchedulerConfig | None = Field(None, description="Scheduler configuration")
+    backup: BackupConfig | None = Field(None, description="Backup configuration")
     llms: list[LLMConfig] = Field(default_factory=list, description="Available LLM configurations")
 
 

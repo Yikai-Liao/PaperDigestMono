@@ -147,6 +147,7 @@
     - 提供优雅的启动和关闭接口，与 Web 服务生命周期集成。
     - 为每次执行输出结构化日志（含 `job_id/run_id/status/latency`），日志写入 `logs/scheduler.log` 的滚动文件。
     - 内建 Prometheus 友好的指标注册表，追踪成功/失败/干跑次数、最后一次耗时、下一次运行时间。
+    - 当 `scheduler.backup_job` 存在时，自动调用 `BackupService` 打包上传备份；在 dry-run 模式下跳过上传但保留清单日志。
 
 - **FastAPI Web 应用 (`papersys/web/app.py`)**:
   - **职责**: 提供一个用于监控和手动控制的 HTTP API 接口。
@@ -174,13 +175,18 @@
 - **Notion**：若切换到 Notion 展示，直接读取数据库中的“打分”列生成偏好事件。
 - **手动导入**：保留 Zotero → CSV 转换脚本，接入统一偏好写入接口。
 
-### 备份与同步策略
+### 备份与同步策略（已落地）
 
-- **主存储**：本地 `data/` 目录（挂载卷）。
-- **远程备份**：
-	- 元数据与嵌入：按模型/年份将 Parquet 推送至 Hugging Face（继续使用，但降低频率，例如每日/每周一次）。
-	- 摘要与偏好：压缩打包上传至私有对象存储或 GitHub Release。
-	- 配置备份：`config.toml` 与偏好 CSV 自动同步到私有 git 分支。
+- **核心服务**：`BackupService` (`papersys/backup/service.py`) 根据 `BackupConfig` 收集配置、日志、模型等目录，生成带有 `MANIFEST.json` 的 `tar.gz` 归档，并调用可插拔上传器完成持久化。失败时会删除临时文件，避免碎片残留。
+- **上传实现**：
+  - `LocalUploader` 将归档复制到指定目录，并依据 `retention` 保留最近 N 份，便于离线恢复或同步至 NAS。
+  - `HuggingFaceDatasetUploader` 复用既有 `huggingface_hub` 依赖，将归档推送至私有 Dataset 仓库；`token` 字段支持 `env:VAR` 解析。
+- **调度集成**：`scheduler.backup_job` 控制执行频率，`SchedulerService` 会在 dry-run 模式下跳过上传但记录计划任务，正式运行成功后自动清理 staging 目录并刷新 metrics。
+- **配置要点**：
+  - `backup.sources` 列出需要保护的目录或文件，支持混合路径与 glob 排除规则。
+  - 本地模式需设置 `backup.destination.path` 并留意磁盘容量；远程模式提供 `repo_id`/`repo_path` 与 `token`。
+  - 通过 `backup.retention` 管理本地保留数量，避免目录无限增长。
+  - 若临时禁用备份，可将 `backup.enabled` 设为 `false`，调度器会保留作业但实际运行时记录“disabled”日志并快速返回。
 
 ### 迁移步骤（建议）
 
