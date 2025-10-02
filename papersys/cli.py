@@ -12,7 +12,7 @@ import uvicorn
 from loguru import logger
 
 from .config import AppConfig, load_config
-from .config.embedding import EmbeddingModelConfig
+from .config.embedding import EmbeddingConfig, EmbeddingModelConfig
 from .config.inspector import check_config, explain_config
 from .recommend import RecommendationDataLoader
 from .scheduler import SchedulerService
@@ -127,6 +127,7 @@ def summarize(
     except ValueError as exc:
         logger.error("Cannot initialise summary pipeline: {}", exc)
         _exit(1)
+        return
 
     if dry_run:
         pipeline.run([], dry_run=True)
@@ -195,13 +196,15 @@ def ingest(
 ) -> None:
     config = _get_state(ctx).ensure_config()
 
-    if not config.ingestion or not config.ingestion.enabled:
+    ingestion_cfg = config.ingestion
+    if ingestion_cfg is None or not ingestion_cfg.enabled:
         logger.error("Ingestion is not enabled in the configuration")
         _exit(1)
 
+    assert ingestion_cfg is not None
     from papersys.ingestion import IngestionService
 
-    service = IngestionService(config.ingestion)
+    service = IngestionService(ingestion_cfg)
 
     logger.info("Starting ingestion: from={}, to={}, limit={}", from_date, until_date, limit)
     fetched, saved = service.fetch_and_save(
@@ -235,23 +238,28 @@ def embed(
 ) -> None:
     config = _get_state(ctx).ensure_config()
 
-    if not config.embedding or not config.embedding.enabled:
+    embedding_cfg = config.embedding
+    if embedding_cfg is None or not embedding_cfg.enabled:
         logger.error("Embedding is not enabled in the configuration")
         _exit(1)
 
     from papersys.embedding import EmbeddingService
 
-    service = EmbeddingService(config.embedding)
+    assert embedding_cfg is not None
+    service = EmbeddingService(embedding_cfg)
 
-    model_config = _select_embedding_model(config, model)
+    model_config = _select_embedding_model(embedding_cfg, model)
     if model_config is None:
         _exit(1)
+        return
 
-    if not config.ingestion or not config.ingestion.output_dir:
+    ingestion_cfg = config.ingestion
+    if ingestion_cfg is None or not ingestion_cfg.output_dir:
         logger.error("Ingestion output_dir not configured; cannot locate metadata CSV files")
         _exit(1)
 
-    metadata_dir = Path(config.ingestion.output_dir)
+    assert ingestion_cfg is not None
+    metadata_dir = Path(ingestion_cfg.output_dir)
 
     if backlog:
         _process_embedding_backlog(service, metadata_dir, model_config, limit)
@@ -348,11 +356,11 @@ def explain(
 
 
 def _select_embedding_model(
-    config: AppConfig, model_alias: str | None
+    embedding_cfg: EmbeddingConfig, model_alias: str | None
 ) -> EmbeddingModelConfig | None:
     if model_alias:
         model_config = next(
-            (m for m in config.embedding.models if m.alias == model_alias),
+            (m for m in embedding_cfg.models if m.alias == model_alias),
             None,
         )
         if not model_config:
@@ -360,11 +368,11 @@ def _select_embedding_model(
             return None
         return model_config
 
-    if not config.embedding.models:
+    if not embedding_cfg.models:
         logger.error("No embedding models configured")
         return None
 
-    model_config = config.embedding.models[0]
+    model_config = embedding_cfg.models[0]
     logger.info("Using default model: {}", model_config.alias)
     return model_config
 
@@ -429,7 +437,13 @@ def _report_system_status(config: AppConfig) -> None:
     logger.info("\n=== Recommendation Pipeline ===")
     if config.recommend_pipeline:
         rp = config.recommend_pipeline
-        logger.info("Data cache: {}", rp.data.cache_dir)
+        logger.info("Preference dir: {}", rp.data.preference_dir)
+        logger.info(
+            "Metadata dir: {} (pattern={})",
+            rp.data.metadata_dir,
+            rp.data.metadata_pattern,
+        )
+        logger.info("Embeddings root: {}", rp.data.embeddings_root)
         logger.info("Embedding columns: {}", ", ".join(rp.data.embedding_columns))
         logger.info("Categories: {}", ", ".join(rp.data.categories))
         logger.info("Trainer seed: {}, bg_sample_rate: {}", rp.trainer.seed, rp.trainer.bg_sample_rate)
@@ -445,10 +459,17 @@ def _report_system_status(config: AppConfig) -> None:
                 "preference_dir" not in missing,
             )
             logger.info(
-                "Cache dir: {} (exists={})",
-                sources.cache_dir,
-                "cache_dir" not in missing,
+                "Metadata dir: {} (exists={})",
+                sources.metadata_dir,
+                "metadata_dir" not in missing,
             )
+            for alias, directory in sources.embedding_dirs().items():
+                logger.info(
+                    "Embedding[%s]: %s (exists=%s)",
+                    alias,
+                    directory,
+                    f"embedding_dir[{alias}]" not in missing,
+                )
         except Exception as exc:
             logger.debug("Recommendation data loader inspection failed: {}", exc)
     else:
@@ -458,8 +479,9 @@ def _report_system_status(config: AppConfig) -> None:
     if config.summary_pipeline:
         sp = config.summary_pipeline
         logger.info("PDF output: {}", sp.pdf.output_dir)
-        logger.info("Model alias: {}", sp.pdf.model)
-        logger.info("Language: {}, LaTeX: {}", sp.pdf.language, sp.pdf.enable_latex)
+        logger.info("Fetch LaTeX source: {}", sp.pdf.fetch_latex_source)
+        logger.info("Model alias: {}", sp.llm.model)
+        logger.info("Language: {}, LaTeX: {}", sp.llm.language, sp.llm.enable_latex)
     else:
         logger.info("Not configured")
 

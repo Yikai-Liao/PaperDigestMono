@@ -25,6 +25,8 @@
 - Removed the manual `native_json_schema` flag from `LLMConfig`, example config, and related tests.
 - Added automatic response-format probing in `_LiteLLMClient`, including JSON schema enforcement when supported and JSON-object fallback otherwise.
 - Introduced dedicated unit tests covering LiteLLM capability detection scenarios.
+- Added synthetic end-to-end integration test covering recommend→PDF→Markdown→LLM summary flow under temporary workspace isolation.
 
 ## Test results
 - `uv run --no-progress pytest tests/config/test_llm_config.py tests/summary/test_generator_detection.py tests/summary/test_summary_pipeline.py tests/summary/test_cli.py tests/summary/test_cli_summarize.py tests/cli/test_cli_config.py`
+- `uv run --no-progress pytest tests/integration/test_full_pipeline.py`

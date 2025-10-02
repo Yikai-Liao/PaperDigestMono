@@ -15,6 +15,8 @@ def test_summary_pipeline_config_minimal(tmp_path: Path) -> None:
     config_file.write_text(
         """
         [pdf]
+
+        [llm]
         model = "test-model"
         """.strip(),
         encoding="utf-8",
@@ -22,13 +24,13 @@ def test_summary_pipeline_config_minimal(tmp_path: Path) -> None:
 
     cfg = load_config(SummaryPipelineConfig, config_file)
 
-    assert cfg.pdf.model == "test-model"
     assert cfg.pdf.output_dir == "./pdfs"
     assert cfg.pdf.delay == 3
     assert cfg.pdf.max_retry == 3
-    assert cfg.pdf.language == "en"
-    assert cfg.pdf.enable_latex is False
-    assert len(cfg.pdf.acceptable_cache_model) > 0  # Default patterns
+    assert cfg.pdf.fetch_latex_source is False
+    assert cfg.llm.model == "test-model"
+    assert cfg.llm.language == "en"
+    assert cfg.llm.enable_latex is False
 
 
 def test_summary_pipeline_config_full(tmp_path: Path) -> None:
@@ -40,10 +42,12 @@ def test_summary_pipeline_config_full(tmp_path: Path) -> None:
         output_dir = "./documents"
         delay = 5
         max_retry = 5
+        fetch_latex_source = true
+
+        [llm]
         model = "deepseek-v3"
         language = "zh"
         enable_latex = true
-        acceptable_cache_model = ["model-a*", "model-b*"]
         """.strip(),
         encoding="utf-8",
     )
@@ -53,10 +57,10 @@ def test_summary_pipeline_config_full(tmp_path: Path) -> None:
     assert cfg.pdf.output_dir == "./documents"
     assert cfg.pdf.delay == 5
     assert cfg.pdf.max_retry == 5
-    assert cfg.pdf.model == "deepseek-v3"
-    assert cfg.pdf.language == "zh"
-    assert cfg.pdf.enable_latex is True
-    assert cfg.pdf.acceptable_cache_model == ["model-a*", "model-b*"]
+    assert cfg.pdf.fetch_latex_source is True
+    assert cfg.llm.model == "deepseek-v3"
+    assert cfg.llm.language == "zh"
+    assert cfg.llm.enable_latex is True
 
 
 def test_summary_pipeline_rejects_extra_fields(tmp_path: Path) -> None:
@@ -65,8 +69,11 @@ def test_summary_pipeline_rejects_extra_fields(tmp_path: Path) -> None:
     config_file.write_text(
         """
         [pdf]
-        model = "test"
+        output_dir = "./pdfs"
         extra_field = "should fail"
+
+        [llm]
+        model = "test"
         """.strip(),
         encoding="utf-8",
     )

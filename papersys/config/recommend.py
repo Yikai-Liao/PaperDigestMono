@@ -33,12 +33,20 @@ class DataConfig(BaseConfig):
         description="Arxiv paper categories to consider",
     )
     embedding_columns: list[str] = Field(..., description="Embedding column names")
-    preference_dir: str = Field("./preference", description="Directory containing preference data")
+    preference_dir: str = Field("./preferences", description="Directory containing preference data")
+    metadata_dir: str = Field("./metadata", description="Directory containing metadata CSV files")
+    metadata_pattern: str = Field(
+        "metadata-*.csv",
+        description="Glob pattern (relative to metadata_dir) to select metadata CSV files",
+    )
+    embeddings_root: str = Field(
+        "./embeddings",
+        description="Root directory that stores per-model embedding parquet files",
+    )
     background_start_year: int = Field(2024, ge=2000, description="Start year for background corpus")
     preference_start_year: int = Field(2023, ge=2000, description="Start year for preference data")
     embed_repo_id: str = Field("lyk/ArxivEmbedding", description="HuggingFace repo for embeddings")
     content_repo_id: str = Field("lyk/ArxivContent", description="HuggingFace repo for content data")
-    cache_dir: str = Field(..., description="Local cache directory path")
 
 
 class PredictConfig(BaseConfig):

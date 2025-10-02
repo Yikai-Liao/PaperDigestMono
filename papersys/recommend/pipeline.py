@@ -37,7 +37,14 @@ class RecommendationPipeline:
         sources = self._loader.describe_sources()
         missing = sources.missing()
         logger.info("Preference directory: {}", sources.preference_dir)
-        logger.info("Cache directory: {}", sources.cache_dir)
+        logger.info(
+            "Metadata directory: {} (pattern={})",
+            sources.metadata_dir,
+            sources.metadata_pattern,
+        )
+        logger.info("Embeddings root: {}", sources.embeddings_root)
+        for alias, directory in sources.embedding_dirs().items():
+            logger.info("  - embedding[%s]: %s", alias, directory)
         if sources.summarized_dir is not None:
             logger.info("Summarized directory: {}", sources.summarized_dir)
         if missing:

@@ -20,7 +20,7 @@ class SummaryGenerationError(RuntimeError):
 
 
 class _LLMClient(Protocol):
-    def summarise(self, source: SummarySource, *, language: str) -> dict[str, str]:
+    def summarise(self, source: SummarySource, *, language: str, context: str | None = None) -> dict[str, str]:
         """Return a mapping of section titles to rendered content."""
         ...
 
@@ -28,14 +28,14 @@ class _LLMClient(Protocol):
 class SummaryGenerator:
     """Generate structured summaries using a real or stubbed LLM client."""
 
-    def __init__(self, llm_config: LLMConfig, *, default_language: str) -> None:
-        self._client = _build_client(llm_config)
+    def __init__(self, llm_config: LLMConfig, *, default_language: str, allow_latex: bool = False) -> None:
+        self._client = _build_client(llm_config, allow_latex=allow_latex)
         self._default_language = default_language or "en"
 
-    def generate(self, source: SummarySource) -> SummaryDocument:
+    def generate(self, source: SummarySource, *, context: str | None = None) -> SummaryDocument:
         language = source.language or self._default_language
         logger.debug("Generating summary for {} using language {}", source.paper_id, language)
-        sections = self._client.summarise(source, language=language)
+        sections = self._client.summarise(source, language=language, context=context)
         if not sections:
             raise SummaryGenerationError("LLM did not return any sections")
         return SummaryDocument(
@@ -68,14 +68,14 @@ _SUPPORTS_RESPONSE_SCHEMA = getattr(litellm, "supports_response_schema", None)
 _GET_SUPPORTED_OPENAI_PARAMS = getattr(litellm, "get_supported_openai_params", None)
 
 
-def _build_client(config: LLMConfig) -> _LLMClient:
+def _build_client(config: LLMConfig, *, allow_latex: bool) -> _LLMClient:
     base_url_value = config.base_url.strip()
     base_url_lower = base_url_value.lower()
     if base_url_lower.startswith("stub://") or base_url_lower.startswith("http://localhost"):
         logger.debug("Using stub LLM client for alias {}", config.alias)
-        return _StubLLMClient(config)
+        return _StubLLMClient(config, allow_latex=allow_latex)
     logger.debug("Using LiteLLM client for alias {}", config.alias)
-    return _LiteLLMClient(config, api_base=base_url_value or None)
+    return _LiteLLMClient(config, api_base=base_url_value or None, allow_latex=allow_latex)
 
 
 def _guess_custom_provider(base_url: str | None) -> str | None:
@@ -174,6 +174,7 @@ class _LiteLLMClient:
 
     config: LLMConfig
     api_base: str | None
+    allow_latex: bool = False
     api_key: str = field(init=False, repr=False)
     _custom_provider: str | None = field(init=False, repr=False, default=None)
     _supports_json_schema: bool = field(init=False, repr=False, default=False)
@@ -192,26 +193,31 @@ class _LiteLLMClient:
             self._supports_response_format,
         )
 
-    def summarise(self, source: SummarySource, *, language: str) -> dict[str, str]:
+    def summarise(self, source: SummarySource, *, language: str, context: str | None = None) -> dict[str, str]:
+        system_parts = [
+            "You are an assistant that produces structured academic paper summaries.",
+            "Return valid JSON with two keys: 'highlights' (array of concise bullet sentences) and 'summary' (paragraph string).",
+            "Respond in the requested language.",
+        ]
+        if not self.allow_latex:
+            system_parts.append("Do not use LaTeX or math markup in the response; prefer plain text.")
         messages: list[dict[str, str]] = [
             {
                 "role": "system",
-                "content": (
-                    "You are an assistant that produces structured academic paper summaries. "
-                    "Return valid JSON with two keys: 'highlights' (array of concise bullet sentences) "
-                    "and 'summary' (paragraph string). Respond in the requested language."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Language: {language}\n"
-                    f"Paper ID: {source.paper_id}\n"
-                    f"Title: {source.title}\n"
-                    f"Abstract: {source.abstract.strip()}"
-                ),
-            },
+                "content": " ".join(system_parts),
+            }
         ]
+
+        user_parts = [
+            f"Language: {language}",
+            f"Paper ID: {source.paper_id}",
+            f"Title: {source.title}",
+            f"Abstract: {source.abstract.strip()}",
+        ]
+        if context:
+            user_parts.append("Paper Content:\n" + context.strip())
+
+        messages.append({"role": "user", "content": "\n".join(user_parts)})
 
         call_kwargs: Dict[str, Any] = {
             "model": self.config.name,
@@ -254,13 +260,15 @@ class _StubLLMClient:
     """Tiny deterministic stand-in for a real LLM client."""
 
     config: LLMConfig
+    allow_latex: bool = False
     api_key: str = field(init=False, repr=False)
 
-    def summarise(self, source: SummarySource, *, language: str) -> dict[str, str]:
+    def summarise(self, source: SummarySource, *, language: str, context: str | None = None) -> dict[str, str]:
         abstract = source.abstract.strip()
         if not abstract:
             abstract = "No abstract provided."
-        highlights = _first_sentences(abstract, limit=2)
+        base_text = context.strip() if context else abstract
+        highlights = _first_sentences(base_text or abstract, limit=2)
         bullets = "\n".join(f"- {item}" for item in highlights)
         body = (
             f"This summary was generated by {self.config.name} (alias {self.config.alias}).\n"
@@ -268,9 +276,14 @@ class _StubLLMClient:
             f"Key observations:\n{bullets}\n\n"
             f"Full abstract:\n{abstract}"
         )
+        if context:
+            body += "\n\nContext excerpt:\n" + context[:2000]
+        summary_body = body
+        if not self.allow_latex:
+            summary_body = summary_body.replace("$", "")
         return {
             "Highlights": "\n".join(highlights) or "No highlights available.",
-            "Detailed Summary": body,
+            "Detailed Summary": summary_body,
         }
 
     def __post_init__(self) -> None:

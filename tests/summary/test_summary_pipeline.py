@@ -6,20 +6,24 @@ import pytest
 
 from papersys.config import AppConfig
 from papersys.config.llm import LLMConfig
-from papersys.config.summary import PdfConfig, SummaryPipelineConfig
+from papersys.config.summary import PdfFetchConfig, SummaryLLMConfig, SummaryPipelineConfig
 from papersys.summary import SummaryPipeline, SummarySource
+from papersys.summary.fetcher import ContentUnavailableError, FetchResult
 
 
 def _build_app_config(tmp_path: Path) -> AppConfig:
     summary_cfg = SummaryPipelineConfig(
-        pdf=PdfConfig(
+        pdf=PdfFetchConfig(
             output_dir="summary-output",
-            model="demo-llm",
-            language="en",
             delay=0,
             max_retry=1,
+            fetch_latex_source=False,
+        ),
+        llm=SummaryLLMConfig(
+            model="demo-llm",
+            language="en",
             enable_latex=False,
-        )
+        ),
     )
     llm_cfg = LLMConfig(
         alias="demo-llm",
@@ -83,14 +87,17 @@ def test_summary_pipeline_dry_run(tmp_path: Path) -> None:
 
 def test_summary_pipeline_requires_known_llm(tmp_path: Path) -> None:
     summary_cfg = SummaryPipelineConfig(
-        pdf=PdfConfig(
+        pdf=PdfFetchConfig(
             output_dir="summary-output",
-            model="missing-llm",
             delay=0,
             max_retry=1,
+            fetch_latex_source=False,
+        ),
+        llm=SummaryLLMConfig(
+            model="missing-llm",
             language="en",
             enable_latex=False,
-        )
+        ),
     )
     config = AppConfig(
         data_root=tmp_path,
@@ -108,3 +115,24 @@ def test_summary_pipeline_requires_known_llm(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="LLM alias 'missing-llm' not found"):
         SummaryPipeline(config, base_path=tmp_path)
+
+
+def test_summary_pipeline_skips_sources_when_fetcher_fails(tmp_path: Path) -> None:
+    class FailingFetcher:
+        def fetch(self, source: SummarySource) -> FetchResult:  # noqa: ARG002
+            raise ContentUnavailableError("no content")
+
+    config = _build_app_config(tmp_path)
+    pipeline = SummaryPipeline(config, base_path=tmp_path, fetcher=FailingFetcher())
+
+    artifacts = pipeline.run(
+        [
+            SummarySource(
+                paper_id="2502.00002",
+                title="Markdown Extraction Failures",
+                abstract="This source cannot produce markdown",
+            )
+        ]
+    )
+
+    assert artifacts == []

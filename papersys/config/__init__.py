@@ -16,7 +16,7 @@ from .recommend import (
     TrainerConfig,
 )
 from .scheduler import SchedulerConfig, SchedulerJobConfig
-from .summary import PdfConfig, SummaryPipelineConfig
+from .summary import PdfFetchConfig, SummaryLLMConfig, SummaryPipelineConfig
 from .utils import resolve_env_reference
 
 __all__ = [
@@ -36,7 +36,8 @@ __all__ = [
     "TrainerConfig",
     "SchedulerConfig",
     "SchedulerJobConfig",
-    "PdfConfig",
+    "PdfFetchConfig",
+    "SummaryLLMConfig",
     "SummaryPipelineConfig",
     "resolve_env_reference",
 ]

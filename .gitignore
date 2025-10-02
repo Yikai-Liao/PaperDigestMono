@@ -2,5 +2,5 @@
 logs/
 data/
 backups/
-.tmp-backups/
+.tmp*/
 temp/

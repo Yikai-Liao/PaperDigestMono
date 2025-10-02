@@ -15,7 +15,8 @@ from papersys.config import (
     EmbeddingModelConfig,
     IngestionConfig,
     LLMConfig,
-    PdfConfig,
+    PdfFetchConfig,
+    SummaryLLMConfig,
     SummaryPipelineConfig,
 )
 
@@ -53,7 +54,15 @@ def make_app_config(
             enabled=True,
             output_dir=str(raw_dir),
             curated_dir=str(curated_dir),
+            start_date=None,
+            end_date=None,
+            batch_size=1000,
+            max_retries=3,
+            retry_delay=5.0,
+            oai_base_url="http://export.arxiv.org/oai2",
+            metadata_prefix="arXiv",
             categories=["cs.CL"],
+            save_raw_responses=False,
         )
 
     embedding_cfg = None
@@ -65,12 +74,25 @@ def make_app_config(
             alias="test",
             name="sentence-transformer/test",
             dimension=384,
+            batch_size=32,
+            max_length=512,
+            device=None,
+            precision="auto",
+            backend="sentence_transformer",
+            model_path=None,
         )
         embedding_models.append(embedding_model)
         embedding_cfg = EmbeddingConfig(
             enabled=True,
             output_dir=str(embed_dir),
             models=embedding_models,
+            auto_fill_backlog=True,
+            backlog_priority="recent_first",
+            max_parallel_models=1,
+            checkpoint_interval=1000,
+            upload_to_hf=False,
+            hf_repo_id=None,
+            hf_token=None,
         )
 
     summary_cfg = None
@@ -81,21 +103,38 @@ def make_app_config(
             name="mock-llm",
             base_url="http://localhost",
             api_key="dummy",
+            temperature=0.0,
+            top_p=1.0,
+            num_workers=1,
+            reasoning_effort=None,
         )
         llms.append(llm_config)
         summary_cfg = SummaryPipelineConfig(
-            pdf=PdfConfig(
+            pdf=PdfFetchConfig(
                 output_dir="summaries/pdfs",
+                delay=0,
+                max_retry=1,
+                fetch_latex_source=False,
+            ),
+            llm=SummaryLLMConfig(
                 model=llm_config.alias,
-            )
+                language="en",
+                enable_latex=False,
+            ),
         )
 
     return AppConfig(
         data_root=data_root,
+        scheduler_enabled=False,
+        embedding_models=[],
+        logging_level="INFO",
         ingestion=ingestion_cfg,
         embedding=embedding_cfg,
         summary_pipeline=summary_cfg,
         llms=llms,
+        recommend_pipeline=None,
+        scheduler=None,
+        backup=None,
     )
 
 

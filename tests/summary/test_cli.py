@@ -14,13 +14,16 @@ def _write_config(path: Path, data_root: Path) -> None:
         embedding_models = []
         logging_level = "INFO"
 
-        [summary_pipeline.pdf]
-        output_dir = "summary-output"
-        model = "demo-llm"
-        language = "en"
-        delay = 0
-        max_retry = 1
-        enable_latex = false
+    [summary_pipeline.pdf]
+    output_dir = "summary-output"
+    delay = 0
+    max_retry = 1
+    fetch_latex_source = false
+
+    [summary_pipeline.llm]
+    model = "demo-llm"
+    language = "en"
+    enable_latex = false
 
         [[llms]]
         alias = "demo-llm"

@@ -299,6 +299,8 @@ def test_embed_full_generation(
     config = make_app_config(tmp_path)
     patch_load_config(monkeypatch, config)
 
+    assert config.ingestion is not None
+    assert config.ingestion is not None
     metadata_dir = Path(config.ingestion.output_dir)
     sample_csv = metadata_dir / "sample.csv"
     sample_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -405,7 +407,7 @@ def test_config_explain_json_output(
     monkeypatch.setattr(
         "papersys.cli.explain_config",
         lambda: [
-            {"name": "summary_pipeline.pdf.model", "type": "str", "required": True, "default": "llm"},
+            {"name": "summary_pipeline.llm.model", "type": "str", "required": True, "default": "llm"},
         ],
     )
 
@@ -413,7 +415,7 @@ def test_config_explain_json_output(
 
     assert exit_code == 0
     captured = capsys.readouterr()
-    assert "summary_pipeline.pdf.model" in captured.out
+    assert "summary_pipeline.llm.model" in captured.out
 
 
 def test_config_explain_text_output(

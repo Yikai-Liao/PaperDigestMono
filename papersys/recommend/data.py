@@ -33,15 +33,24 @@ class RecommendationDataSources:
     """Resolved IO locations that feed the recommendation pipeline."""
 
     preference_dir: Path
-    cache_dir: Path
+    metadata_dir: Path
+    metadata_pattern: str
+    embeddings_root: Path
+    embedding_aliases: tuple[str, ...]
     summarized_dir: Path | None
+
+    def embedding_dirs(self) -> dict[str, Path]:
+        return {alias: self.embeddings_root / alias for alias in self.embedding_aliases}
 
     def missing(self) -> tuple[str, ...]:
         missing: list[str] = []
         if not self.preference_dir.exists():
             missing.append("preference_dir")
-        if not self.cache_dir.exists():
-            missing.append("cache_dir")
+        if not self.metadata_dir.exists():
+            missing.append("metadata_dir")
+        for alias, directory in self.embedding_dirs().items():
+            if not directory.exists():
+                missing.append(f"embedding_dir[{alias}]")
         if self.summarized_dir is not None and not self.summarized_dir.exists():
             missing.append("summarized_dir")
         return tuple(missing)
@@ -70,11 +79,15 @@ class RecommendationDataLoader:
     def describe_sources(self) -> RecommendationDataSources:
         data_cfg = self._pipeline_cfg.data
         preference_dir = self._resolve(data_cfg.preference_dir)
-        cache_dir = self._resolve(data_cfg.cache_dir)
+        metadata_dir = self._resolve(data_cfg.metadata_dir)
+        embeddings_root = self._resolve(data_cfg.embeddings_root)
         summarized_dir = self._summarized_dir or self._resolve_optional("summarized")
         return RecommendationDataSources(
             preference_dir=preference_dir,
-            cache_dir=cache_dir,
+            metadata_dir=metadata_dir,
+            metadata_pattern=data_cfg.metadata_pattern,
+            embeddings_root=embeddings_root,
+            embedding_aliases=tuple(data_cfg.embedding_columns),
             summarized_dir=summarized_dir,
         )
 
@@ -132,13 +145,32 @@ class RecommendationDataLoader:
 
         frames: list[pl.DataFrame] = []
         for csv_path in sorted(preference_dir.rglob("*.csv")):
-            frames.append(
-                pl.read_csv(
-                    csv_path,
-                    columns=["id", "preference"],
-                    schema={"id": pl.String, "preference": pl.String},
+            with csv_path.open("r", encoding="utf-8") as fh:
+                header_line = fh.readline().strip()
+            if not header_line:
+                raise ValueError(f"Preference CSV {csv_path} is empty")
+
+            field_names = [name.strip() for name in header_line.split(",") if name.strip()]
+            overrides = {
+                name: pl.String
+                for name in field_names
+                if name in {"id", "paper_id", "preference", "recorded_at"}
+            }
+
+            frame = pl.read_csv(csv_path, schema_overrides=overrides)
+
+            if "id" not in frame.columns and "paper_id" in frame.columns:
+                frame = frame.rename({"paper_id": "id"})
+
+            if "id" not in frame.columns:
+                raise ValueError(
+                    f"Preference CSV {csv_path} must contain an 'id' or 'paper_id' column"
                 )
-            )
+
+            if "preference" not in frame.columns:
+                raise ValueError(f"Preference CSV {csv_path} is missing 'preference' column")
+
+            frames.append(frame.select(["id", "preference"]))
         if not frames:
             raise ValueError(f"No preference CSV files found in {preference_dir}")
         preferences = pl.concat(frames, how="vertical").unique(subset="id")
@@ -147,15 +179,64 @@ class RecommendationDataLoader:
 
     def _load_candidates_lazy(self) -> pl.LazyFrame:
         sources = self.describe_sources()
-        cache_dir = sources.cache_dir
-        if not cache_dir.exists():
-            raise FileNotFoundError(f"Cache directory not found: {cache_dir}")
+        metadata_paths = sorted(sources.metadata_dir.glob(sources.metadata_pattern))
+        if not metadata_paths:
+            raise FileNotFoundError(
+                f"No metadata CSV files found in {sources.metadata_dir} using pattern {sources.metadata_pattern}"
+            )
 
-        parquet_paths = sorted(cache_dir.glob("*.parquet"))
-        if not parquet_paths:
-            raise ValueError(f"No parquet files found in {cache_dir}")
+        metadata_lazy = self._scan_metadata(metadata_paths)
 
-        return pl.scan_parquet([str(p) for p in parquet_paths], missing_columns="insert")
+        candidate_lazy = metadata_lazy
+        for alias, directory in sources.embedding_dirs().items():
+            parquet_paths = sorted(directory.glob("*.parquet"))
+            if not parquet_paths:
+                raise FileNotFoundError(
+                    f"No parquet files found for embedding '{alias}' in {directory}"
+                )
+            embedding_lazy = self._scan_embedding(alias, parquet_paths)
+            candidate_lazy = candidate_lazy.join(embedding_lazy, on="id", how="inner")
+
+        return candidate_lazy.unique(subset="id")
+
+    def _scan_metadata(self, paths: Iterable[Path]) -> pl.LazyFrame:
+        scans: list[pl.LazyFrame] = []
+        for csv_path in paths:
+            scan = pl.scan_csv(
+                str(csv_path),
+                schema_overrides={
+                    "paper_id": pl.String,
+                    "title": pl.String,
+                    "abstract": pl.String,
+                    "categories": pl.String,
+                    "updated_at": pl.String,
+                },
+            )
+            scans.append(scan)
+
+        metadata = pl.concat(scans, how="vertical") if len(scans) > 1 else scans[0]
+        metadata = metadata.with_columns(
+            pl.col("paper_id").alias("id"),
+            pl.col("title").fill_null("").alias("title"),
+            pl.col("abstract").fill_null("").alias("abstract"),
+            pl.col("categories")
+            .fill_null("")
+            .str.split(";")
+            .list.eval(pl.element().str.strip_chars())
+            .alias("categories"),
+            pl.col("updated_at").fill_null("").alias("updated"),
+        ).select(["id", "title", "abstract", "categories", "updated"])
+        return metadata.unique(subset="id")
+
+    def _scan_embedding(self, alias: str, parquet_paths: Iterable[Path]) -> pl.LazyFrame:
+        lazy = pl.scan_parquet(
+            [str(path) for path in parquet_paths],
+            n_rows=None,
+        )
+        return lazy.select(
+            pl.col("paper_id").alias("id"),
+            pl.col("embedding").alias(alias),
+        )
 
     def _filter_by_categories(self, frame: pl.LazyFrame) -> pl.LazyFrame:
         categories = self._pipeline_cfg.data.categories
@@ -172,9 +253,23 @@ class RecommendationDataLoader:
         embedding_columns = self._pipeline_cfg.data.embedding_columns
         if not embedding_columns:
             return frame
-        condition = pl.all_horizontal([pl.col(col).is_not_null() for col in embedding_columns])
+
+        valid_conditions: list[pl.Expr] = []
+        for column in embedding_columns:
+            col_expr = pl.col(column)
+            invalid_expr = (
+                col_expr.is_null()
+                | col_expr.list.eval(pl.element().is_null()).list.any()
+                | col_expr.list.eval(~pl.element().is_finite()).list.any()
+            )
+            valid_conditions.append(~invalid_expr)
+
+        condition = pl.all_horizontal(valid_conditions)
         filtered = frame.filter(condition)
-        logger.info("Filtered rows with null embeddings for columns {}", embedding_columns)
+        logger.info(
+            "Filtered rows with null or non-finite embeddings for columns {}",
+            embedding_columns,
+        )
         return filtered
 
     def _apply_year_constraints(self, frame: pl.LazyFrame) -> pl.LazyFrame:

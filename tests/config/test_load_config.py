@@ -40,14 +40,18 @@ def test_app_config_example_file() -> None:
     cfg = load_config(AppConfig, config_path)
 
     # Legacy/general fields
-    assert cfg.data_root == Path("./data")
+    assert cfg.data_root == Path("../data")
     assert cfg.scheduler_enabled is True
     assert cfg.logging_level == "INFO"
 
     # Recommendation pipeline
     assert cfg.recommend_pipeline is not None
-    assert cfg.recommend_pipeline.data.cache_dir == "./cache"
-    assert cfg.recommend_pipeline.data.embedding_columns == ["jasper_v1", "conan_v1"]
+    data_cfg = cfg.recommend_pipeline.data
+    assert data_cfg.preference_dir == "./preferences"
+    assert data_cfg.metadata_dir == "./metadata"
+    assert data_cfg.metadata_pattern == "metadata-*.csv"
+    assert data_cfg.embeddings_root == "./embeddings"
+    assert data_cfg.embedding_columns == ["jasper_v1", "conan_v1"]
     assert cfg.recommend_pipeline.trainer.seed == 42
     assert cfg.recommend_pipeline.trainer.logistic_regression.C == 1.0
     assert cfg.recommend_pipeline.predict.last_n_days == 7
@@ -56,8 +60,9 @@ def test_app_config_example_file() -> None:
     # Summary pipeline
     assert cfg.summary_pipeline is not None
     assert cfg.summary_pipeline.pdf.output_dir == "./pdfs"
-    assert cfg.summary_pipeline.pdf.model == "gemini-2.5-flash"
-    assert cfg.summary_pipeline.pdf.language == "zh"
+    assert cfg.summary_pipeline.pdf.fetch_latex_source is False
+    assert cfg.summary_pipeline.llm.model == "gemini-2.5-flash"
+    assert cfg.summary_pipeline.llm.language == "zh"
 
     # Backup configuration
     assert cfg.backup is not None

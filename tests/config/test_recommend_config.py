@@ -16,7 +16,6 @@ def test_recommend_pipeline_config_minimal(tmp_path: Path) -> None:
         """
         [data]
         embedding_columns = ["jasper_v1"]
-        cache_dir = "./cache"
 
         [predict]
         output_path = "./output.parquet"
@@ -28,7 +27,10 @@ def test_recommend_pipeline_config_minimal(tmp_path: Path) -> None:
 
     # Check data config with defaults
     assert cfg.data.embedding_columns == ["jasper_v1"]
-    assert cfg.data.cache_dir == "./cache"
+    assert cfg.data.preference_dir == "./preferences"
+    assert cfg.data.metadata_dir == "./metadata"
+    assert cfg.data.metadata_pattern == "metadata-*.csv"
+    assert cfg.data.embeddings_root == "./embeddings"
     assert cfg.data.background_start_year == 2024
     assert len(cfg.data.categories) > 0  # Default categories
 
@@ -52,11 +54,13 @@ def test_recommend_pipeline_config_full(tmp_path: Path) -> None:
         categories = ["cs.CL", "cs.LG"]
         embedding_columns = ["jasper_v1", "conan_v1"]
         preference_dir = "./pref"
+    metadata_dir = "./meta"
+    metadata_pattern = "sample-*.csv"
+    embeddings_root = "./emb"
         background_start_year = 2023
         preference_start_year = 2022
         embed_repo_id = "test/embed"
         content_repo_id = "test/content"
-        cache_dir = "./cache"
 
         [trainer]
         seed = 99
@@ -84,6 +88,9 @@ def test_recommend_pipeline_config_full(tmp_path: Path) -> None:
     assert cfg.data.categories == ["cs.CL", "cs.LG"]
     assert cfg.data.embedding_columns == ["jasper_v1", "conan_v1"]
     assert cfg.data.preference_dir == "./pref"
+    assert cfg.data.metadata_dir == "./meta"
+    assert cfg.data.metadata_pattern == "sample-*.csv"
+    assert cfg.data.embeddings_root == "./emb"
     assert cfg.data.background_start_year == 2023
     assert cfg.data.preference_start_year == 2022
     assert cfg.data.embed_repo_id == "test/embed"
@@ -112,7 +119,6 @@ def test_recommend_pipeline_rejects_extra_fields(tmp_path: Path) -> None:
         """
         [data]
         embedding_columns = ["jasper_v1"]
-        cache_dir = "./cache"
         unknown_field = "fail"
 
         [predict]

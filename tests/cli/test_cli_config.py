@@ -24,9 +24,13 @@ timezone = "UTC"
 
 [summary_pipeline.pdf]
 output_dir = "./pdfs"
+delay = 0
+max_retry = 1
+fetch_latex_source = false
+
+[summary_pipeline.llm]
 model = "deepseek-r1"
 language = "en"
-
 enable_latex = false
 
 [[llms]]
@@ -88,5 +92,5 @@ def test_config_explain_text_output(capsys):
 
     captured = capsys.readouterr()
     assert "Configuration schema" in captured.err
-    assert "summary_pipeline.pdf.model" in captured.err
+    assert "summary_pipeline.llm.model" in captured.err
     assert "llms[].alias" in captured.err

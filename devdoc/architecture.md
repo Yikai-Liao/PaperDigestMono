@@ -106,7 +106,7 @@ data/
   preferences/
     events-YYYY.csv                     # 追加式事件流（逗号分隔，字符串按 CSV 规范转义）
   summaries/
-    YYYY-MM.jsonl                     # 每月聚合 JSONL，字段含 paper_id、sections、model_meta
+    YYYY-MM.jsonl                       # 每月聚合 JSONL，字段含 paper_id、sections、model_meta
   temp/
     markdown/                           # 临时 Markdown，供静态站点构建后清理
     pdf/                                # 下载的原始 PDF，缓存策略见运行规范
@@ -122,6 +122,16 @@ data/
 | `embeddings/<model_alias>/YYYY.parquet` | `paper_id`、`embedding` (list[float32])、`model_dim` (int)、`generated_at` (UTC ISO) | `hash`（向量哈希）、`version`（模型权重标记）、`source`（local/hf/manual） | `embedding` 推荐使用 `float32`；若需节省空间可在迁移脚本中转 `float16` |
 | `embeddings/<model_alias>/backlog.parquet` | `paper_id`、`origin`（metadata/legacy/import）、`missing_reason`、`queued_at` | `priority`、`retry_count` | 记录待补齐的论文列表，调度器据此分配任务 |
 | `preferences/events-YYYY.csv` | `paper_id`、`preference`（enum: like/dislike/neutral）、`recorded_at` | `source`、`confidence`、`note` | 引擎按 CSV 附加模式写入；字符串需转义 |
+
+#### 推荐候选集构建（更新）
+
+> 2025-10 起，推荐流水线不再要求预先生成 `data/cache/*.parquet`。候选数据在运行阶段按需组合，避免 TB 级别数据反复写入与过度占用磁盘。
+
+- **元数据扫描**：根据 `metadata_dir` 与通配符（默认 `metadata-*.csv`）使用 `polars.scan_csv` 懒加载所有 CSV。初始字段统一命名（如将 `paper_id` 重命名为 `id`），并在懒阶段完成类别拆分、时间过滤等轻量处理。
+- **嵌入拼接**：对配置中的每个 `embedding` alias 扫描 `data/embeddings/<alias>/*.parquet`，使用 `polars.scan_parquet` 读取 `paper_id` 与向量列，同样重命名为 `id`，随后逐个与元数据执行内连接，仅保留向量完备的记录。
+- **偏好裁剪**：偏好 CSV 仍在运行期读取，并通过 `id` 与候选集匹配，确保仅使用历史上“被标记过”的论文作为正样本。
+- **懒执行到实体化**：所有筛选（类别、年份、缺失向量剔除）优先在 lazy graph 内完成，最终在训练/预测前一次性 `collect()`。对于大数据集，可进一步按年份或时间窗口拆分运行，减少内存峰值。
+该策略使推荐阶段完全依赖现有元数据与向量仓库，符合“local-first”与“零冗余缓存”的设计目标，也消除了重复 I/O 带来的性能开销。
 
 #### 路径与访问策略
 - 所有读写通过 `AppConfig.data_root` 解析，允许相对/绝对路径；调度器、CLI 默认指向仓库根下 `data/`。
@@ -163,18 +173,20 @@ data/
 - **`recommend.py`**：
   - `LogisticRegressionConfig`：C、max_iter。
   - `TrainerConfig`：seed、bg_sample_rate、logistic_regression。
-  - `DataConfig`：categories、embedding_columns、preference_dir、background_start_year、preference_start_year、embed_repo_id、content_repo_id、cache_dir。
+  - `DataConfig`：categories、embedding_columns、preference_dir、metadata_dir、metadata_pattern、embeddings_root、background_start_year、preference_start_year、embed_repo_id、content_repo_id。
   - `PredictConfig`：last_n_days、start_date、end_date、high_threshold、boundary_threshold、sample_rate、output_path。
   - `RecommendPipelineConfig`：聚合以上 data/trainer/predict 子节点。
 - **`summary.py`**：
-  - `PdfConfig`：output_dir、delay、max_retry、model（LLM alias）、language、enable_latex、acceptable_cache_model。
-  - `SummaryPipelineConfig`：包含 pdf 节点。
+  - `PdfFetchConfig`：output_dir、delay、max_retry、fetch_latex_source（是否额外下载 LaTeX tarball 供 LLM 上下文使用）。
+  - `SummaryLLMConfig`：model（LLM alias）、language、enable_latex（仅控制模型输出是否允许包含 LaTeX）。
+  - `SummaryPipelineConfig`：组合 pdf 与 llm 两类子配置。
 - **`scheduler.py`**：
   - `SchedulerJobConfig`：`enabled`, `name`, `cron`（Cron 表达式）。
   - `SchedulerConfig`：`enabled`, `timezone`, `recommend_job`, `summary_job`。
 - **`app.py`**：`AppConfig` 顶层配置（`data_root`、`scheduler_enabled`、`embedding_models`、`logging_level` 为历史兼容字段；`recommend_pipeline`、`summary_pipeline`、`llms`、`scheduler` 为新业务配置）。
 
 示例配置 `config/example.toml` 包含完整字段，单元测试 `tests/config/test_*.py` 覆盖各层级读取与严格性校验，CLI `status --dry-run` 输出详细状态。
+集成回归 `tests/integration/test_full_pipeline.py` 验证推荐→PDF→摘要全链路，详见 `devdoc/testing/full-pipeline.md`。
 
 ### 运行编排与调度
 

@@ -51,7 +51,7 @@
 - 新增配置模型：
   - `papersys/config/llm.py`：LLMConfig 包含 alias/name/base_url/api_key/temperature/top_p/num_workers/reasoning_effort/native_json_schema 字段。
   - `papersys/config/recommend.py`：LogisticRegressionConfig、TrainerConfig、DataConfig、PredictConfig、RecommendPipelineConfig，覆盖推荐管线全配置节点。
-  - `papersys/config/summary.py`：PdfConfig、SummaryPipelineConfig，管理摘要流水线参数。
+  - `papersys/config/summary.py`：PdfFetchConfig、SummaryLLMConfig、SummaryPipelineConfig，管理摘要流水线参数。
 - 更新顶层配置：
   - `papersys/config/app.py`：AppConfig 添加 recommend_pipeline、summary_pipeline、llms 字段，保留 data_root/scheduler_enabled/embedding_models/logging_level 历史兼容。
   - `papersys/config/__init__.py`：导出所有新模型。
