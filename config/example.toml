@@ -120,8 +120,6 @@ preference_dir = "./preferences"
 metadata_dir = "./metadata"
 metadata_pattern = "metadata-*.csv"
 embeddings_root = "./embeddings"
-embed_repo_id = "lyk/ArxivEmbedding"
-content_repo_id = "lyk/ArxivContent"
 background_start_year = 2024
 preference_start_year = 2023
 

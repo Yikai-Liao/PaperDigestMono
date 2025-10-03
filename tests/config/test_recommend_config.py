@@ -59,8 +59,6 @@ def test_recommend_pipeline_config_full(tmp_path: Path) -> None:
     embeddings_root = "./emb"
         background_start_year = 2023
         preference_start_year = 2022
-        embed_repo_id = "test/embed"
-        content_repo_id = "test/content"
 
         [trainer]
         seed = 99
@@ -93,8 +91,6 @@ def test_recommend_pipeline_config_full(tmp_path: Path) -> None:
     assert cfg.data.embeddings_root == "./emb"
     assert cfg.data.background_start_year == 2023
     assert cfg.data.preference_start_year == 2022
-    assert cfg.data.embed_repo_id == "test/embed"
-    assert cfg.data.content_repo_id == "test/content"
 
     # Trainer config
     assert cfg.trainer.seed == 99

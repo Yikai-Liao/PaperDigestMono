@@ -162,8 +162,6 @@ def recommendation_config(tmp_path: Path) -> AppConfig:
             embeddings_root=str(embeddings_root.relative_to(data_root)),
             background_start_year=2024,
             preference_start_year=2024,
-            embed_repo_id="local/embeddings",
-            content_repo_id="local/content",
         ),
         trainer=TrainerConfig(
             seed=123,
@@ -257,8 +255,6 @@ def test_loader_accepts_paper_id_preferences(tmp_path: Path) -> None:
             embeddings_root=str(embeddings_root.relative_to(data_root)),
             background_start_year=2024,
             preference_start_year=2024,
-            embed_repo_id="local/embeddings",
-            content_repo_id="local/content",
         ),
         trainer=TrainerConfig(
             seed=42,
@@ -345,8 +341,6 @@ def test_loader_filters_nan_embeddings(tmp_path: Path) -> None:
             embeddings_root=str(embeddings_root.relative_to(data_root)),
             background_start_year=2024,
             preference_start_year=2024,
-            embed_repo_id="local/embeddings",
-            content_repo_id="local/content",
         ),
         trainer=TrainerConfig(
             seed=42,

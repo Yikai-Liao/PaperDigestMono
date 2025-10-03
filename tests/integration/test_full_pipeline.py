@@ -33,8 +33,6 @@ def _build_app_config(base_dir: Path) -> AppConfig:
         categories=["cs.AI"],
         background_start_year=2024,
         preference_start_year=2024,
-        embed_repo_id="local/test-embeddings",
-        content_repo_id="local/test-content",
     )
     predict_cfg = PredictConfig(
         last_n_days=60,
