@@ -7,7 +7,7 @@
   - `papersys/scheduler` – 基于 APScheduler 的作业调度，现已具备结构化日志、Prometheus 指标与手动触发入口。
   - `papersys/web` – FastAPI 应用，暴露 `/health`、`/jobs`、`/scheduler/run/{job_id}`、`/metrics` 等接口。
   - `papersys/cli.py` – 统一入口（`serve` 等命令）串联配置、调度器、Web 控制台。
-- **文档索引**：系统架构请先读 `devdoc/architecture.md`，环境约束见 `devdoc/env.md`，流程规范见 `devdoc/rool.md`。
+- **文档索引**：系统架构请先读 `devdoc/architecture.md`，环境约束见 `devdoc/env.md`，流程规范见 `devdoc/rool.md`。Reference 仓库功能调研与迁移开发计划见 `devdoc/reference-survey.md` 和 `devlog/2025-10-03-migration-plan.md`，便于快速上手旧流程迁移。
 
 ## Environment & tools
 - 仅使用 **uv** 管理 Python 3.12+ 环境：
@@ -17,6 +17,7 @@
 - 数据处理优先 `polars`（惰性执行）与 `duckdb`（复杂查询），兼容 HuggingFace 数据源。
 - Python 代码务必使用 `pathlib.Path` 管理路径。
 - Shell 命令必须是非交互式的；提前确认输出量，避免进入分页或需要人工确认的流程。
+- 当前终端中，已经配置了`HF_TOKEN` 和 `GEMINI_API_KEY` 环境变量
 
 ## Workflow guardrails
 - 多文件或复杂改动前，必须在 `devlog/` 下新增变更计划 Markdown，覆盖现状、风险、方案与回滚策略，经确认后再动代码。
