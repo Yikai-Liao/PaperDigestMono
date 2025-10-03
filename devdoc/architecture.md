@@ -173,7 +173,7 @@ data/
 - **`recommend.py`**：
   - `LogisticRegressionConfig`：C、max_iter。
   - `TrainerConfig`：seed、bg_sample_rate、logistic_regression。
-  - `DataConfig`：categories、embedding_columns、preference_dir、metadata_dir、metadata_pattern、embeddings_root、background_start_year、preference_start_year、embed_repo_id、content_repo_id。
+  - `DataConfig`：categories、embedding_columns、preference_dir、metadata_dir、metadata_pattern、embeddings_root、background_start_year、preference_start_year。
   - `PredictConfig`：last_n_days、start_date、end_date、high_threshold、boundary_threshold、sample_rate、output_path。
   - `RecommendPipelineConfig`：聚合以上 data/trainer/predict 子节点。
 - **`summary.py`**：

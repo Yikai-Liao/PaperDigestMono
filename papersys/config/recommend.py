@@ -45,8 +45,6 @@ class DataConfig(BaseConfig):
     )
     background_start_year: int = Field(2024, ge=2000, description="Start year for background corpus")
     preference_start_year: int = Field(2023, ge=2000, description="Start year for preference data")
-    embed_repo_id: str = Field("lyk/ArxivEmbedding", description="HuggingFace repo for embeddings")
-    content_repo_id: str = Field("lyk/ArxivContent", description="HuggingFace repo for content data")
 
 
 class PredictConfig(BaseConfig):
