@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -15,6 +16,9 @@ class SummarySource:
     abstract: str
     pdf_url: str | None = None
     language: str | None = None
+    score: float | None = None
+    categories: list[str] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

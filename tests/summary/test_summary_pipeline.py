@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,36 @@ def test_summary_pipeline_dry_run(tmp_path: Path) -> None:
     sources = pipeline.describe_sources()
     assert sources.pdf_dir.exists()
     assert sources.markdown_dir.exists()
+
+
+def test_run_and_save_outputs(tmp_path: Path) -> None:
+    config = _build_app_config(tmp_path)
+    pipeline = SummaryPipeline(config, base_path=tmp_path)
+
+    sources = [
+        SummarySource(
+            paper_id="2503.00003",
+            title="Automating Markdown Pipelines",
+            abstract="A short abstract for testing",
+            score=0.99,
+        )
+    ]
+
+    report = pipeline.run_and_save(sources)
+
+    assert report.jsonl_path.exists()
+    assert report.manifest_path.exists()
+    assert report.markdown_dir.exists()
+
+    jsonl_content = report.jsonl_path.read_text(encoding="utf-8").strip().splitlines()
+    assert jsonl_content
+    record = json.loads(jsonl_content[-1])
+    assert record["id"] == "2503.00003"
+    assert record["score"] == 0.99
+
+    manifest = json.loads(report.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["summarized"] == 1
+    assert manifest["jsonl_path"] == str(report.jsonl_path)
 
 
 def test_summary_pipeline_requires_known_llm(tmp_path: Path) -> None:

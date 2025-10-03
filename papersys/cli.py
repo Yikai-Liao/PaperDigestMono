@@ -110,32 +110,78 @@ def status(
     _report_system_status(config)
 
 
-@app.command(help="Inspect or run the summary pipeline")
+@app.command(help="Generate summaries for recommended papers")
 def summarize(
     ctx: typer.Context,
+    input: Path | None = typer.Option(
+        None,
+        "--input",
+        help="Path to recommended output (recommended.parquet/jsonl). Defaults to latest run",
+    ),
+    limit: int | None = typer.Option(
+        None,
+        help="Maximum number of papers to summarise",
+    ),
     dry_run: bool = typer.Option(
         False,
-        help="Validate the summary pipeline without executing external calls",
+        help="Inspect the summary pipeline without generating artefacts",
     ),
 ) -> None:
     state = _get_state(ctx)
     config = state.ensure_config()
-    base_path = config.data_root or state.config_path.parent
+    if config.summary_pipeline is None:
+        logger.error("Summary pipeline is not configured")
+        _exit(1)
+
+    base_path = config.data_root
+    if base_path is None:
+        base_path = state.config_path.parent
+    elif not base_path.is_absolute():
+        base_path = (state.config_path.parent / base_path).resolve()
 
     try:
         pipeline = SummaryPipeline(config, base_path=base_path)
-    except ValueError as exc:
+    except (ValueError, EnvironmentError) as exc:
         logger.error("Cannot initialise summary pipeline: {}", exc)
         _exit(1)
         return
 
+    pipeline.describe_sources()
+
     if dry_run:
         pipeline.run([], dry_run=True)
+        logger.info("[Dry Run] Summary pipeline was not executed.")
         return
 
-    logger.warning(
-        "Summary execution requires input data which is not wired yet. Use --dry-run for checks."
-    )
+    resolved_input = input
+    if resolved_input is not None and not resolved_input.is_absolute():
+        resolved_input = (base_path / resolved_input).resolve()
+
+    if resolved_input is None:
+        resolved_input = _discover_latest_recommendation_output(base_path)
+        if resolved_input is None:
+            logger.error(
+                "Could not locate latest recommendation output. Specify --input explicitly."
+            )
+            _exit(1)
+            return
+
+    try:
+        sources = pipeline.load_sources_from_recommendations(resolved_input, limit=limit)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Failed to load recommendation file {}: {}", resolved_input, exc)
+        _exit(1)
+        return
+
+    if not sources:
+        logger.warning("No candidates found in {}; nothing to summarise", resolved_input)
+        return
+
+    report = pipeline.run_and_save(sources, limit=limit)
+
+    logger.info("Summary JSONL updated at {}", report.jsonl_path)
+    logger.info("Summary manifest written to {}", report.manifest_path)
+    logger.info("Markdown outputs available in {}", report.markdown_dir)
 
 
 @app.command(help="Run the scheduler and API server")
@@ -456,6 +502,20 @@ def explain(
             default=default_repr,
             description=description,
         )
+
+
+def _discover_latest_recommendation_output(base_path: Path) -> Path | None:
+    root = (base_path / "recommendations").resolve()
+    if not root.exists():
+        return None
+
+    candidate_dirs = sorted((entry for entry in root.iterdir() if entry.is_dir()), reverse=True)
+    for directory in candidate_dirs:
+        for filename in ("recommended.parquet", "recommended.jsonl", "predictions.parquet"):
+            candidate = directory / filename
+            if candidate.exists():
+                return candidate
+    return None
 
 
 def _select_embedding_model(

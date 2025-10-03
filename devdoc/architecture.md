@@ -139,7 +139,7 @@ data/
 - 所有读写通过 `AppConfig.data_root` 解析，允许相对/绝对路径；调度器、CLI 默认指向仓库根下 `data/`。
 - 元数据抓取结果直接写入 CSV；若需保存原始 OAI 响应，可额外启用 Debug 选项输出至 `metadata/raw/arxiv/debug/`（默认关闭）。
 - 迁移脚本 `scripts/migrate_reference_embeddings.py` 将历史 Parquet 拆分为 `metadata/curated/*.csv` 与 `embeddings/<model>/*.parquet`，同时生成 `backlog.parquet` 以标记缺失向量。
-- `SummaryPipeline` 仅保留 JSONL 结构化文件；Markdown/PDF 等临时工件放入 `temp/`，完成发布或打包后由任务删除，避免占用空间。
+- `SummaryPipeline` 在 `data/summaries/` 下追加 `YYYY-MM.jsonl` 与 `manifest-<run_id>.json`，Markdown 输出放入 `pdf.output_dir/markdown/<run_id>/`；PDF 可复用或按需清理。
 - 备份服务打包 `data/`、`logs/`、`config/` 至 `backups/`（或远端），恢复时依据 MANIFEST 还原。
 
 #### 自动化补齐策略

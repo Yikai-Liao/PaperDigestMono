@@ -50,9 +50,19 @@ def test_summarize_dry_run_executes_pipeline(
         def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
             calls["base_path"] = base_path
 
-        def run(self, sources: list[Any], dry_run: bool = False) -> list[Any]:
+        def describe_sources(self) -> None:
+            calls["describe"] = True
+
+        def load_sources_from_recommendations(self, *_: Any, **__: Any) -> list[Any]:  # pragma: no cover
+            raise AssertionError("load_sources_from_recommendations should not be called in dry-run")
+
+        def run(self, sources: list[Any], dry_run: bool = False, run_id: str | None = None) -> list[Any]:
             calls["run"] = dry_run
+            calls["run_id"] = run_id
             return []
+
+        def run_and_save(self, *_: Any, **__: Any) -> Any:  # pragma: no cover
+            raise AssertionError("run_and_save should not be called in dry-run")
 
     monkeypatch.setattr("papersys.cli.SummaryPipeline", DummyPipeline)
 
@@ -61,38 +71,60 @@ def test_summarize_dry_run_executes_pipeline(
     assert exit_code == 0
     assert calls["base_path"] is not None
     assert calls["run"] is True
+    assert calls["describe"] is True
 
 
-def test_summarize_without_dry_run_warns(
+def test_summarize_runs_with_input(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    capsys: Any,
     config_path: Path,
 ) -> None:
     config = make_app_config(tmp_path)
     patch_load_config(monkeypatch, config)
 
-    pipelines: list[Any] = []
+    calls: dict[str, Any] = {}
 
     class DummyPipeline:
         def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
-            self.run_called = False
-            pipelines.append(self)
+            calls["base_path"] = base_path
 
-        def run(self, sources: list[Any], dry_run: bool = False) -> list[Any]:
-            self.run_called = True
-            return []
+        def describe_sources(self) -> None:
+            calls["describe"] = True
+
+        def load_sources_from_recommendations(self, path: Path, limit: int | None = None) -> list[Any]:
+            calls["load"] = {"path": path, "limit": limit}
+            return ["source"]
+
+        def run_and_save(self, sources: list[Any], limit: int | None = None) -> Any:
+            calls["run_and_save"] = {"sources": sources, "limit": limit}
+            return SimpleNamespace(
+                artifacts=[],
+                jsonl_path=tmp_path / "data" / "summaries" / "2025-10.jsonl",
+                manifest_path=tmp_path / "data" / "summaries" / "manifest-123.json",
+                markdown_dir=tmp_path / "data" / "summary-output" / "markdown" / "123",
+            )
 
     monkeypatch.setattr("papersys.cli.SummaryPipeline", DummyPipeline)
 
-    with logger_to_stderr():
-        exit_code = main(["--config", str(config_path), "summarize"])
+    input_path = tmp_path / "data" / "recommendations" / "run" / "recommended.parquet"
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text("placeholder", encoding="utf-8")
+
+    exit_code = main([
+        "--config",
+        str(config_path),
+        "summarize",
+        "--input",
+        str(input_path),
+        "--limit",
+        "5",
+    ])
 
     assert exit_code == 0
-    assert pipelines
-    assert pipelines[0].run_called is False
-    captured = capsys.readouterr()
-    assert "Use --dry-run" in captured.err
+    assert calls["describe"] is True
+    assert calls["load"]["path"] == input_path
+    assert calls["load"]["limit"] == 5
+    assert calls["run_and_save"]["sources"] == ["source"]
 
 
 def test_serve_dry_run_sets_up_scheduler(
