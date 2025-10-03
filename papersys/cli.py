@@ -278,7 +278,34 @@ def embed(
     metadata_dir = metadata_dir_raw if metadata_dir_raw.is_absolute() else base_path / metadata_dir_raw
 
     if backlog:
-        _process_embedding_backlog(service, metadata_dir, model_config, limit)
+        backlog_df = service.detect_backlog(metadata_dir, model_config)
+        if backlog_df.is_empty():
+            logger.info("No backlog items found for model {}", model_config.alias)
+            return
+
+        metadata_paths = (
+            backlog_df.select("origin").unique()["origin"].to_list()
+        )
+        logger.info(
+            "Processing {} metadata files from backlog for model {}",
+            len(metadata_paths),
+            model_config.alias,
+        )
+        total_count = 0
+        for path_str in metadata_paths:
+            csv_path = Path(path_str)
+            if not csv_path.exists():
+                logger.warning("Backlog metadata file not found: {}", csv_path)
+                continue
+            count, _ = service.generate_embeddings_for_csv(
+                csv_path,
+                model_config,
+                limit=limit,
+            )
+            total_count += count
+            service.refresh_backlog(metadata_dir, model_config)
+
+        logger.info("Generated {} embeddings from backlog", total_count)
         return
 
     csv_files = sorted(path for path in metadata_dir.glob("metadata-*.csv") if path.is_file())
@@ -303,6 +330,7 @@ def embed(
         )
         total_count += count
     logger.info("Generated {} embeddings total", total_count)
+    service.refresh_backlog(metadata_dir, model_config)
 
 
 @config_app.command(help="Validate the configuration file")
@@ -400,27 +428,6 @@ def _select_embedding_model(
     return model_config
 
 
-def _process_embedding_backlog(
-    service: "EmbeddingService",
-    metadata_dir: Path,
-    model_config: EmbeddingModelConfig,
-    limit: int | None,
-) -> None:
-    backlog_files = service.detect_backlog(metadata_dir, model_config.alias)
-    if not backlog_files:
-        logger.info("No backlog found for model {}", model_config.alias)
-        return
-
-    logger.info("Processing {} files in backlog", len(backlog_files))
-    total_count = 0
-    for csv_path in backlog_files:
-        count, _ = service.generate_embeddings_for_csv(
-            csv_path,
-            model_config,
-            limit=limit,
-        )
-        total_count += count
-    logger.info("Generated {} embeddings total", total_count)
 
 
 def _report_system_status(config: AppConfig) -> None:

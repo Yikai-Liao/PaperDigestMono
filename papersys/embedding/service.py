@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import multiprocessing as mp
 import os
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Sequence, cast
 
@@ -32,6 +34,23 @@ os.environ.setdefault("VLLM_WORKER_MP_START_METHOD", "spawn")
 
 
 _VLLM_BACKEND_SENTINEL: object = object()
+_EMBEDDING_SOURCE = "papersys.embedding.service"
+_BACKLOG_SCHEMA = {
+    "paper_id": pl.String,
+    "missing_reason": pl.String,
+    "origin": pl.String,
+    "queued_at": pl.String,
+    "model_alias": pl.String,
+    "year": pl.String,
+}
+_METADATA_SCHEMA = {
+    "paper_id": pl.String,
+    "title": pl.String,
+    "abstract": pl.String,
+    "categories": pl.String,
+    "primary_category": pl.String,
+    "authors": pl.String,
+}
 
 
 def _vllm_embedding_worker(
@@ -114,6 +133,36 @@ class EmbeddingService:
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._default_device: str | None = None
+
+    def _model_dir(self, model_alias: str) -> Path:
+        model_dir = self.output_dir / model_alias
+        model_dir.mkdir(parents=True, exist_ok=True)
+        return model_dir
+
+    def _manifest_path(self, model_alias: str) -> Path:
+        return self._model_dir(model_alias) / "manifest.json"
+
+    def _backlog_path(self, model_alias: str) -> Path:
+        return self._model_dir(model_alias) / "backlog.parquet"
+
+    def _metadata_candidates(self, metadata_dir: Path) -> list[Path]:
+        if not metadata_dir.exists():
+            logger.warning("Metadata directory {} does not exist", metadata_dir)
+            return []
+
+        flat_files = [
+            path
+            for path in metadata_dir.glob("metadata-*.csv")
+            if path.is_file()
+        ]
+        if flat_files:
+            return sorted(flat_files)
+
+        nested_files: list[Path] = []
+        for year_dir in sorted(metadata_dir.iterdir()):
+            if year_dir.is_dir():
+                nested_files.extend(sorted(year_dir.glob("*.csv")))
+        return nested_files
 
     def _detect_device(self) -> str:
         """Auto-detect best available device."""
@@ -324,112 +373,208 @@ class EmbeddingService:
             Tuple of (number of embeddings generated, output parquet path)
         """
         logger.info("Processing {} with model {}", csv_path, model_config.alias)
+        df = pl.read_csv(csv_path, schema_overrides=_METADATA_SCHEMA)
 
-        # Read CSV with explicit schema to preserve string types
-        schema_overrides = {
-            "paper_id": pl.String,
-            "title": pl.String,
-            "abstract": pl.String,
-            "categories": pl.String,
-            "primary_category": pl.String,
-            "authors": pl.String,
-        }
-        df = pl.read_csv(csv_path, schema_overrides=schema_overrides)
-        
-        if limit:
+        if limit is not None:
             df = df.head(limit)
             logger.info("Limited to {} records for testing", limit)
 
-        # Load model
+        if df.is_empty():
+            logger.warning("No rows found in {}; skipping embedding generation", csv_path)
+            year = self._infer_year_from_path(csv_path)
+            if year is None:
+                raise ValueError(f"Unable to infer year from CSV path: {csv_path}")
+            output_path = self._model_dir(model_config.alias) / f"{year}.parquet"
+            if output_path.exists():
+                self._update_manifest(model_config.alias, model_config.dimension)
+            return 0, output_path
+
         model = self.load_model(model_config)
 
-        # Prepare texts (title + abstract)
-        texts = []
+        texts: list[str] = []
         for row in df.iter_rows(named=True):
-            title = row.get("title", "")
-            abstract = row.get("abstract", "")
+            title = row.get("title", "") or ""
+            abstract = row.get("abstract", "") or ""
             text = f"{title}\n\n{abstract}".strip()
             texts.append(text)
 
+        if not texts:
+            logger.warning("No texts prepared for embedding from {}; skipping", csv_path)
+            year = self._infer_year_from_path(csv_path)
+            if year is None:
+                raise ValueError(f"Unable to infer year from CSV path: {csv_path}")
+            output_path = self._model_dir(model_config.alias) / f"{year}.parquet"
+            if output_path.exists():
+                self._update_manifest(model_config.alias, model_config.dimension)
+            return 0, output_path
+
         logger.info("Generating embeddings for {} texts...", len(texts))
-
-        # Generate embeddings in batches
         embeddings = self.embed_batch(texts, model, model_config)
-
         logger.info("Generated {} embeddings", len(embeddings))
 
-        # Create output dataframe
-        result_df = pl.DataFrame({
-            "paper_id": df["paper_id"],
-            "embedding": embeddings,
-        })
-
-        # Determine output path
+        timestamp = datetime.now(timezone.utc).isoformat()
+        model_dir = self._model_dir(model_config.alias)
         year = self._infer_year_from_path(csv_path)
         if year is None:
             raise ValueError(f"Unable to infer year from CSV path: {csv_path}")
-        model_dir = self.output_dir / model_config.alias
-        model_dir.mkdir(parents=True, exist_ok=True)
         output_path = model_dir / f"{year}.parquet"
 
-        # Save to parquet
-        result_df.write_parquet(output_path)
-        logger.info("Saved embeddings to {}", output_path)
+        result_df = pl.DataFrame(
+            {
+                "paper_id": df["paper_id"],
+                "embedding": embeddings,
+                "generated_at": [timestamp] * len(embeddings),
+                "model_dim": [model_config.dimension] * len(embeddings),
+                "source": [_EMBEDDING_SOURCE] * len(embeddings),
+            }
+        ).with_columns(pl.col("model_dim").cast(pl.UInt32))
 
-        return len(embeddings), output_path
+        if output_path.exists():
+            existing = pl.read_parquet(output_path)
+            combined = pl.concat([existing, result_df], how="vertical_relaxed")
+        else:
+            combined = result_df
 
-    def detect_backlog(
+        combined = self._deduplicate_embeddings(combined)
+        combined.write_parquet(output_path)
+        logger.info("Saved embeddings to {} ({} rows)", output_path, combined.height)
+
+        self._update_manifest(model_config.alias, model_config.dimension)
+
+        return len(result_df), output_path
+
+    def refresh_backlog(
         self,
         metadata_dir: Path,
-        model_alias: str,
-    ) -> list[Path]:
-        """
-        Detect CSV files without corresponding embeddings.
+        model_config: EmbeddingModelConfig,
+    ) -> pl.DataFrame:
+        """Refresh backlog entries for the given model and return the current dataset."""
 
-        Args:
-            metadata_dir: Directory containing metadata CSV files
-            model_alias: Model alias to check
+        model_dir = self._model_dir(model_config.alias)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        backlog_entries: list[pl.DataFrame] = []
 
-        Returns:
-            List of CSV paths that need embedding generation
-        """
-        model_dir = self.output_dir / model_alias
-        existing_parquets = set()
-        
-        if model_dir.exists():
-            for parquet_path in model_dir.glob("*.parquet"):
-                # Extract year from filename (e.g., "2024.parquet" -> "2024")
-                year = parquet_path.stem
-                existing_parquets.add(year)
-
-        csv_candidates = [
-            path
-            for path in metadata_dir.glob("metadata-*.csv")
-            if path.is_file()
-        ]
-
+        csv_candidates = self._metadata_candidates(metadata_dir)
         if not csv_candidates:
-            for year_dir in metadata_dir.iterdir():
-                if not year_dir.is_dir():
-                    continue
-                csv_candidates.extend(path for path in year_dir.glob("*.csv") if path.is_file())
+            logger.info("No metadata files found under {}", metadata_dir)
 
-        backlog: list[Path] = []
         for csv_path in csv_candidates:
             year = self._infer_year_from_path(csv_path)
             if year is None:
                 logger.warning("Skipping metadata file without detectable year: {}", csv_path)
                 continue
-            if year in existing_parquets:
-                continue
-            backlog.append(csv_path)
 
-        logger.info(
-            "Found {} CSV files in backlog for model {}",
-            len(backlog),
-            model_alias,
+            metadata_lazy = pl.scan_csv(
+                csv_path,
+                schema_overrides={"paper_id": pl.String},
+            ).select("paper_id")
+            parquet_path = model_dir / f"{year}.parquet"
+
+            if parquet_path.exists():
+                embeddings_lazy = pl.scan_parquet(parquet_path).select("paper_id")
+                missing_lazy = metadata_lazy.join(embeddings_lazy, on="paper_id", how="anti")
+                missing_df = missing_lazy.collect()
+                missing_reason = "missing_embedding"
+            else:
+                missing_df = metadata_lazy.collect()
+                missing_reason = "missing_embedding_file"
+
+            if missing_df.is_empty():
+                continue
+
+            backlog_entries.append(
+                missing_df.with_columns(
+                    pl.lit(missing_reason).alias("missing_reason"),
+                    pl.lit(str(csv_path)).alias("origin"),
+                    pl.lit(timestamp).alias("queued_at"),
+                    pl.lit(model_config.alias).alias("model_alias"),
+                    pl.lit(str(year)).alias("year"),
+                )
+            )
+
+        backlog_path = self._backlog_path(model_config.alias)
+
+        if backlog_entries:
+            backlog_df = pl.concat(backlog_entries, how="vertical_relaxed")
+            backlog_df = backlog_df.unique(subset=["model_alias", "paper_id"], keep="first")
+            backlog_df.select(list(_BACKLOG_SCHEMA.keys())).write_parquet(backlog_path)
+            logger.info(
+                "Backlog refreshed for model {}: {} pending items",
+                model_config.alias,
+                backlog_df.height,
+            )
+            return backlog_df.select(list(_BACKLOG_SCHEMA.keys()))
+
+        if backlog_path.exists():
+            backlog_path.unlink()
+            logger.info("No backlog remaining for model {}; removed {}", model_config.alias, backlog_path)
+
+        empty_df = pl.DataFrame({name: [] for name in _BACKLOG_SCHEMA}, schema=_BACKLOG_SCHEMA)
+        return empty_df
+
+    def detect_backlog(
+        self,
+        metadata_dir: Path,
+        model_config: EmbeddingModelConfig,
+    ) -> pl.DataFrame:
+        """Alias for refresh_backlog kept for backward compatibility."""
+
+        return self.refresh_backlog(metadata_dir, model_config)
+
+    def _deduplicate_embeddings(self, frame: pl.DataFrame) -> pl.DataFrame:
+        if frame.is_empty():
+            return frame
+
+        if "generated_at" in frame.columns:
+            sorted_frame = frame.sort(
+                ["paper_id", "generated_at"],
+                descending=[False, True],
+            )
+        else:
+            sorted_frame = frame.sort("paper_id")
+
+        deduped = sorted_frame.unique(subset=["paper_id"], keep="first")
+        desired_order = [
+            "paper_id",
+            "embedding",
+            "generated_at",
+            "model_dim",
+            "source",
+        ]
+        columns = [col for col in desired_order if col in deduped.columns]
+        columns += [col for col in deduped.columns if col not in columns]
+        return deduped.select(columns)
+
+    def _update_manifest(self, model_alias: str, dimension: int) -> None:
+        model_dir = self._model_dir(model_alias)
+        manifest_path = self._manifest_path(model_alias)
+
+        year_counts: dict[str, int] = {}
+        total_rows = 0
+        parquet_files = sorted(
+            path
+            for path in model_dir.glob("*.parquet")
+            if path.name != "backlog.parquet"
         )
-        return backlog
+
+        for parquet_path in parquet_files:
+            year = parquet_path.stem
+            count = int(pl.scan_parquet(parquet_path).select(pl.len()).collect().item())
+            year_counts[year] = count
+            total_rows += count
+
+        manifest = {
+            "model": model_alias,
+            "dimension": dimension,
+            "total_rows": total_rows,
+            "years": year_counts,
+            "files": [path.name for path in parquet_files],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source": _EMBEDDING_SOURCE,
+        }
+
+        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+        logger.debug("Updated manifest {}", manifest_path)
 
     @staticmethod
     def _infer_year_from_path(csv_path: Path) -> str | None:

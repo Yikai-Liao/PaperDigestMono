@@ -143,14 +143,10 @@ data/
 - 备份服务打包 `data/`、`logs/`、`config/` 至 `backups/`（或远端），恢复时依据 MANIFEST 还原。
 
 #### 自动化补齐策略
-- 新增 `EmbeddingConfig` 支持 `auto_fill_backlog=true`；当配置中引入新模型时，迁移脚本会根据历史 `metadata` 生成 backlog，写入 `embeddings/<model>/backlog.parquet`。
-- `EmbeddingService` 启动时检测 backlog：
-  - 首先判断运行环境（CUDA、Metal、CPU）。服务会在初始化时探测 `torch.cuda.is_available()`、`torch.backends.mps.is_available()`，选择最优执行器（优先 CUDA > Apple Metal > CPU），并允许通过配置覆写。
-  - 根据 backlog 分批拉取待处理论文，按模型配置（batch_size、precision、device）生成向量。
-  - 成功写入后从 backlog 移除记录，并将结果追加至 `embeddings/<model>/YYYY.parquet`，更新 `manifest.json`。
-- 对于旧数据的补齐：
-  - 增加 CLI `embed autopatch --model <alias>`，读取 backlog 并执行批量补齐，可附带 `--from-year`、`--limit`。
-  - 调度器新增 `embedding_backfill_job`，周期性检查 backlog，避免遗漏历史论文。
+- `EmbeddingService` 每次写入向量后自动更新 `embeddings/<model>/manifest.json`（累计行数、年度文件清单、生成时间）并产出标准 schema 的年度 Parquet（字段：`paper_id`、`embedding`、`generated_at`、`model_dim`、`source`）。
+- `refresh_backlog()` 会扫描 `metadata/` 与现有 Parquet 差集，将缺失或新出现的 `paper_id` 写入 `embeddings/<model>/backlog.parquet`（字段含 `paper_id`、`missing_reason`、`origin`、`queued_at`、`model_alias`、`year`），幂等覆盖旧状态。
+- CLI `papersys embed --backlog` 基于 backlog 中记录的 `origin` 逐个处理对应 CSV，完成后自动刷新 backlog；常规模式也会在批量运行后重新计算 backlog，确保文件与实际状态同步。
+- 生产环境可结合配置项 `auto_fill_backlog=true` 与调度作业 `scheduler.embedding_backfill_job` 周期刷新 backlog，实现无人值守补齐；手动演示可使用 `scripts/run_embedding_sample.py --model <alias> --limit 5` 进行小批量验证。
 
 #### 目录忽略策略
 - `data/`、`backups/`、`.tmp-backups/` 等运行目录已加入 `.gitignore`，临时目录（`temp/`）默认也忽略。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -122,39 +123,55 @@ def test_embed_batch(test_service: EmbeddingService, test_embedding_config: Embe
     mock_model.encode.assert_called_once()
 
 
-def test_detect_backlog(test_service: EmbeddingService, test_csv: Path, tmp_path: Path) -> None:
-    """Test detecting CSV files without embeddings."""
-    metadata_dir = test_csv.parent.parent
-    model_alias = "test_model"
+def test_refresh_backlog_tracks_missing_rows(
+    test_service: EmbeddingService,
+    test_csv: Path,
+    test_embedding_config: EmbeddingConfig,
+) -> None:
+    """Refreshing backlog should emit pending rows and update after embeddings exist."""
 
-    # Initially, no embeddings exist
-    backlog = test_service.detect_backlog(metadata_dir, model_alias)
-    assert len(backlog) == 1
-    assert backlog[0] == test_csv
-    
-    # Create embedding file
-    model_dir = test_service.output_dir / model_alias
+    metadata_dir = test_csv.parent.parent
+    model_config = test_embedding_config.models[0]
+
+    backlog_df = test_service.refresh_backlog(metadata_dir, model_config)
+    assert backlog_df.height == 3
+    assert backlog_df["missing_reason"].unique().to_list() == ["missing_embedding_file"]
+    backlog_path = (test_service.output_dir / model_config.alias / "backlog.parquet")
+    assert backlog_path.exists()
+
+    model_dir = test_service.output_dir / model_config.alias
     model_dir.mkdir(parents=True, exist_ok=True)
     embedding_file = model_dir / "2024.parquet"
-    
-    df = pl.DataFrame({
-        "paper_id": ["2024.00001"],
-        "embedding": [[[0.1] * 384]],
-    })
-    df.write_parquet(embedding_file)
-    
-    # Now backlog should be empty
-    backlog = test_service.detect_backlog(metadata_dir, model_alias)
-    assert len(backlog) == 0
+    vector = [0.1] * model_config.dimension
+    embeddings = [vector, list(vector)]
+    pl.DataFrame(
+        {
+            "paper_id": ["2024.00001", "2024.00002"],
+            "embedding": embeddings,
+            "generated_at": ["2025-01-01", "2025-01-01"],
+            "model_dim": [model_config.dimension, model_config.dimension],
+            "source": ["test", "test"],
+        }
+    ).with_columns(pl.col("model_dim").cast(pl.UInt32)).write_parquet(embedding_file)
+
+    backlog_df = test_service.refresh_backlog(metadata_dir, model_config)
+    assert backlog_df.height == 1
+    assert backlog_df["paper_id"].to_list() == ["2024.00003"]
+    assert backlog_df["missing_reason"].unique().to_list() == ["missing_embedding"]
 
 
-def test_detect_backlog_flat_structure(test_service: EmbeddingService, tmp_path: Path) -> None:
+def test_refresh_backlog_flat_structure(
+    test_service: EmbeddingService,
+    test_embedding_config: EmbeddingConfig,
+    tmp_path: Path,
+) -> None:
     """Backlog detection should support flat metadata-YYYY.csv layout."""
+
     metadata_dir = tmp_path / "metadata"
     metadata_dir.mkdir(parents=True, exist_ok=True)
     csv_path = metadata_dir / "metadata-2024.csv"
 
-    frame = pl.DataFrame(
+    pl.DataFrame(
         {
             "paper_id": ["2024.00001"],
             "title": ["Paper"],
@@ -168,11 +185,13 @@ def test_detect_backlog_flat_structure(test_service: EmbeddingService, tmp_path:
             "comment": [""],
             "journal_ref": [""],
         }
-    )
-    frame.write_csv(csv_path)
+    ).write_csv(csv_path)
 
-    backlog = test_service.detect_backlog(metadata_dir, "test_model")
-    assert backlog == [csv_path]
+    model_config = test_embedding_config.models[0]
+    backlog_df = test_service.refresh_backlog(metadata_dir, model_config)
+
+    assert backlog_df.height == 1
+    assert backlog_df["origin"].to_list() == [str(csv_path)]
 
 
 def test_generate_embeddings_for_csv_with_limit(
@@ -182,20 +201,56 @@ def test_generate_embeddings_for_csv_with_limit(
 ) -> None:
     """Test generating embeddings with a limit."""
     model_config = test_embedding_config.models[0]
-    
-    # Generate embeddings with limit=2
-    count, output_path = test_service.generate_embeddings_for_csv(
-        test_csv,
-        model_config,
-        limit=2,
-    )
-    
+    mock_model = object()
+    mock_embeddings = [[0.1] * model_config.dimension, [0.2] * model_config.dimension]
+
+    with patch.object(test_service, "load_model", return_value=mock_model) as load_mock, patch.object(
+        test_service, "embed_batch", return_value=mock_embeddings
+    ) as embed_mock:
+        count, output_path = test_service.generate_embeddings_for_csv(
+            test_csv,
+            model_config,
+            limit=2,
+        )
+
+    load_mock.assert_called_once()
+    embed_mock.assert_called_once()
+
     assert count == 2
     assert output_path.exists()
-    
-    # Verify output
+
     df = pl.read_parquet(output_path)
-    assert len(df) == 2
-    assert "paper_id" in df.columns
-    assert "embedding" in df.columns
+    assert df.height == 2
     assert df["paper_id"].to_list() == ["2024.00001", "2024.00002"]
+    assert set(df.columns) >= {"embedding", "generated_at", "model_dim", "source"}
+    assert df["source"].unique().to_list() == ["papersys.embedding.service"]
+    assert df["model_dim"].unique().to_list() == [model_config.dimension]
+
+    manifest_path = output_path.parent / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["model"] == model_config.alias
+    assert manifest["dimension"] == model_config.dimension
+    assert manifest["total_rows"] == 2
+    assert manifest["years"] == {"2024": 2}
+
+
+def test_generate_embeddings_is_idempotent(
+    test_service: EmbeddingService,
+    test_csv: Path,
+    test_embedding_config: EmbeddingConfig,
+) -> None:
+    """Repeated generations should not duplicate embeddings."""
+
+    model_config = test_embedding_config.models[0]
+    mock_model = object()
+    mock_embeddings = [[0.1] * model_config.dimension, [0.2] * model_config.dimension]
+
+    with patch.object(test_service, "load_model", return_value=mock_model), patch.object(
+        test_service, "embed_batch", return_value=mock_embeddings
+    ):
+        test_service.generate_embeddings_for_csv(test_csv, model_config, limit=2)
+        test_service.generate_embeddings_for_csv(test_csv, model_config, limit=2)
+
+    output_path = test_service.output_dir / model_config.alias / "2024.parquet"
+    df = pl.read_parquet(output_path)
+    assert df.height == 2
