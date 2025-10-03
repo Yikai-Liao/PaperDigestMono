@@ -1,4 +1,6 @@
 # 数据存储结构与字段说明
+Status: Reference
+Last-updated: 2025-10-02
 
 > 更新时间：2025-10-02（基于 `papersys` 单仓本地优先架构）
 

@@ -1,4 +1,6 @@
 # 2025-10-02 摘要流水线真实 LLM 调用改造计划
+Status: Completed
+Last-updated: 2025-10-02
 
 ## 背景与现状
 - `SummaryGenerator` 目前仅使用 `_StubLLMClient`，根据摘要文本截取句子拼接结果，无法触发真实的 API 调用。

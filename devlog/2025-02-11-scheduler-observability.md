@@ -1,4 +1,6 @@
 # Scheduler Observability Enhancements Plan
+Status: Completed
+Last-updated: 2025-10-02
 
 ## Background
 The scheduler service currently registers APScheduler jobs and exposes a minimal FastAPI layer. It lacks structured logging, runtime metrics, and a metrics endpoint. Tests focus on job registration/start/trigger behavior without observability validation. Documentation and TODO items are not updated to reflect new requirements.
@@ -31,3 +33,7 @@ The scheduler service currently registers APScheduler jobs and exposes a minimal
 
 ## Contingency
 If log sink creation fails due to filesystem restrictions, leave console logging active and emit warning; metrics remain functional. If Prometheus formatting tests fail, adjust exporter to match expected format.
+
+## 执行记录
+- 2025-10-02：`SchedulerMetricsRegistry` 与 `/metrics` 端点落地，`papersys/scheduler/service.py`、`papersys/web/app.py` 支持 Prometheus 输出与结构化日志。
+- 2025-10-02：补充 `tests/scheduler/test_service.py`、`tests/web/test_app.py` 覆盖成功/失败/dry-run 指标与 HTTP 响应，`uv run --no-progress pytest tests/scheduler/test_service.py tests/web/test_app.py` 全部通过。

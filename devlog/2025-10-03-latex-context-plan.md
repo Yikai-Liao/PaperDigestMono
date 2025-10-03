@@ -1,4 +1,6 @@
 # 2025-10-03 latex context plan
+Status: Completed
+Last-updated: 2025-10-03
 
 ## Current status
 - 当前 `ArxivContentFetcher` 仅下载 LaTeX tarball 后粗暴清洗文本，直接作为 LLM 上下文，未充分利用 `latex2json`。
@@ -18,3 +20,7 @@
 ## Rollback strategy
 - 若解析或性能问题影响主流程，可回滚 `fetcher` 改动或临时禁用 `fetch_latex_source`。
 - 删除新增的测试与缓存目录配置，恢复此前的简易上下文方案。
+
+## 执行记录
+- 2025-10-03：`ArxivContentFetcher` 接入 `latex2json` 流程，失败时回退 Marker PDF→Markdown，统一写入本地缓存。
+- 2025-10-03：`tests/summary/test_fetcher.py` 覆盖 LaTeX 成功、Marker 回退、全失败三种分支，`uv run --no-progress pytest tests/summary/test_fetcher.py` 通过。

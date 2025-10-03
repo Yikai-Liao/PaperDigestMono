@@ -1,4 +1,6 @@
 # TODO Expansion Plan (2025-10-02)
+Status: Planned
+Last-updated: 2025-10-02
 
 ## Current Situation
 - `devdoc/todo/` 目录中的条目已覆盖备份、配置巡检、调度可观测性等近期交付，但尚缺后续迭代的细化排期与风险拆解。

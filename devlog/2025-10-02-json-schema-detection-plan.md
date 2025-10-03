@@ -1,4 +1,6 @@
 # JSON schema capability auto-detection plan
+Status: Completed
+Last-updated: 2025-10-02
 
 ## Current situation
 - `LLMConfig` includes a `native_json_schema` flag that must be maintained manually in every configuration and test fixture.

@@ -1,4 +1,6 @@
 # PR-3/4/5 Integration Plan (2025-10-02)
+Status: Planned
+Last-updated: 2025-10-02
 
 ## Current State
 - `master` 已引入 Scheduler 可观测性、结构化日志与 `/metrics`，同时保持 `papersys/web` API 稳定。

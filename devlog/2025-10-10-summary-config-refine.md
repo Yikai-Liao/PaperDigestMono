@@ -1,4 +1,6 @@
 # Summary pipeline config refine
+Status: Completed
+Last-updated: 2025-10-03
 
 ## Current situation
 - `SummaryPipelineConfig` 仍将 LLM 选择与 PDF 抓取杂糅在同一个 `PdfConfig` 节点里，`enable_latex` 既用于控制 LLM 输出，又误导性地驱动 LaTeX 抓取逻辑。
@@ -16,3 +18,8 @@
 
 ## Rollback strategy
 - 若新结构引发大量兼容性问题，保留旧 `PdfConfig` 别名与字段映射，允许在一次提交内回退至拆分前的配置并恢复相关测试。
+
+## 执行记录
+- 2025-10-03：拆分 `SummaryPipelineConfig` 为 `PdfFetchConfig` 与 `SummaryLLMConfig`，更新 `papersys/config/summary.py`、`config/example.toml` 与加载逻辑。
+- 2025-10-03：调整 `SummaryPipeline` 以根据 LLM 别名解析配置、传递 `enable_latex`，并确保 fetcher 读取 `fetch_latex_source`。
+- 2025-10-03：新增/更新 `tests/config/test_summary_config.py`、`tests/summary/test_summary_pipeline.py` 覆盖新结构。

@@ -1,4 +1,6 @@
 # 2025-10-02 Embedding backend refactor
+Status: Completed
+Last-updated: 2025-10-02
 
 ## 现状
 - `EmbeddingService.load_model` 依赖模型别名硬编码判断是否使用 vLLM。
@@ -22,3 +24,7 @@
 
 ## 测试记录
 - `uv run --no-progress pytest tests/embedding/test_embedding_service.py`
+
+## 执行记录
+- 2025-10-02：`EmbeddingModelConfig` 新增 `backend` 字段，`EmbeddingService.load_model` 依据配置区分 SentenceTransformer 与 vLLM，主进程不再 import vLLM。
+- 2025-10-02：`config/example.toml`、`devdoc/env.md` 增补后端说明，`tests/embedding/test_embedding_service.py` 验证哨兵与句向量加载路径。

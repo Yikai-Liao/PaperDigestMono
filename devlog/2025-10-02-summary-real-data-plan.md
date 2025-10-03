@@ -1,4 +1,6 @@
 # Summary pipeline real-data integration plan (2025-10-02)
+Status: Completed
+Last-updated: 2025-10-03
 
 ## Current state
 - 集成测试 `tests/integration/test_full_pipeline.py` 为了可重复性使用手工构造的候选 Parquet/CSV，并只覆盖推荐→占位 PDF → Stub LLM 的路径。
@@ -55,3 +57,8 @@
 ## Rollback & mitigation
 - 保留 `PlaceholderPdfFetcher` 并在配置层可选；若真实下载失败，允许 fallback 到占位 PDF + 摘要模式。
 - 新增功能尽量封装在独立模块，出现问题可回滚对应文件而不影响推荐链路。
+
+## 执行记录
+- 2025-10-03：`SummaryPipeline` 集成 `ArxivContentFetcher`，支持真实 PDF 下载与 LaTeX/Marker 双路径 Markdown 提取，新增 `StubContentFetcher` 保持测试可重复。
+- 2025-10-03：`SummaryGenerator` 接受真实 Markdown 上下文，流水线写入 Markdown 缓存；`tests/summary/test_fetcher.py`、`tests/summary/test_summary_pipeline.py` 更新覆盖。
+- 2025-10-03：新增 `scripts/run_real_full_pipeline.py`，复用推荐结果生成真实摘要产物并输出 PDF/Markdown。

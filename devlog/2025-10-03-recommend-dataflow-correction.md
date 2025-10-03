@@ -1,4 +1,6 @@
 # 2025-10-03 推荐流水线数据加载修正计划
+Status: Completed
+Last-updated: 2025-10-03
 
 ## 现状
 - `RecommendationDataLoader` 依赖 `cache_dir` 下的预拼接 Parquet 候选集；真实仓库未提供该缓存，因此手动运行脚本失败。
@@ -36,3 +38,8 @@
 
 ## 回滚策略
 - 变更集中于数据加载层，出现问题时回滚 `RecommendationDataLoader` 相关提交即可恢复原行为。
+
+## 执行记录
+- 2025-10-03：完成配置字段迁移（新增 metadata_dir/metadata_pattern/embeddings_root），同时更新 `config/example.toml` 与推荐配置测试。
+- 2025-10-03：重写 `RecommendationDataLoader` 按需扫描 metadata 与嵌入，移除缓存依赖并补充 lazy join 校验。
+- 2025-10-03：扩展 `tests/recommend/test_pipeline.py` 覆盖无缓存场景，更新 `devdoc/architecture.md` 描述推荐数据加载流程。

@@ -1,4 +1,6 @@
 # Ingestion & Embedding Migration Plan (2025-10-02)
+Status: Completed
+Last-updated: 2025-10-03
 
 ## 1. 背景与目标
 - 当前仓库的 `papersys` 包已经完成配置体系、推荐/摘要流水线、调度、备份等模块，但 `ingestion` 目录仍为空壳，Embedding 生成流程也尚未迁移。
@@ -148,3 +150,8 @@
   - `tests/embedding/`
 - 测试验证：`uv run --no-progress pytest tests/ingestion/ tests/embedding/` 全部通过。
 - 待办：按模块拆分提交，先提交配置/服务实现，再补文档与日志；后续继续推进数据迁移脚本和调度集成。
+
+## 执行记录
+- 2025-10-03：新增 `papersys.ingestion` 模块（`ArxivOAIClient`、`IngestionService`）及 CLI `ingest` 子命令，支持日期筛选与去重，`tests/ingestion/` 全部通过。
+- 2025-10-03：实现 `papersys.embedding.service.EmbeddingService`、CLI `embed` 与 backlog 辅助函数，配套 `tests/embedding/test_embedding_service.py`。
+- 2025-10-03：配置层加入 `IngestionConfig`、`EmbeddingConfig` 并扩展示例配置，文档同步更新数据存储与环境说明。

@@ -1,4 +1,6 @@
 # CLI 清洁化重构计划（2025-10-05）
+Status: Completed
+Last-updated: 2025-10-03
 
 ## 现状
 - `papersys/cli.py` 的 `main` 函数超过 250 行，集中处理所有子命令，存在嵌套分支与重复逻辑。
@@ -26,7 +28,7 @@
 - `uv run --no-progress pytest tests/config/test_embedding_config.py`
 - `uv run --no-progress pytest`
 
-## 执行记录（2025-10-05）
+## 执行记录（2025-10-03）
 - 按计划将 `papersys/cli.py` 重构为基于 handler 的结构，新增 `_COMMAND_HANDLERS` 与针对各子命令的独立函数，维持原有日志与返回码语义。
 - 抽取 `_select_embedding_model` 辅助方法，复用模型选择逻辑并保持类型提示完整。
 

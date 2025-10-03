@@ -1,4 +1,6 @@
 # 2025-10-09 Migration Tool Implementation
+Status: In Progress
+Last-updated: 2025-10-03
 
 ## Context
 - 按照 `2025-10-08-data-migration-plan.md` 的路线，开始落地迁移工具。

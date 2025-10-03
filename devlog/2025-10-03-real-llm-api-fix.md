@@ -1,4 +1,6 @@
 # Real LLM API Testing Fix - 2025-10-03
+Status: Completed
+Last-updated: 2025-10-03
 
 ## Problem
 Initially, LLM client code was trying to manually set `base_url` and `custom_llm_provider` for Gemini models, which caused API routing failures. The error messages showed:

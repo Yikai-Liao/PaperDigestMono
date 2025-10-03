@@ -1,4 +1,6 @@
 # CLI command test expansion plan (2025-10-07)
+Status: Completed
+Last-updated: 2025-10-03
 
 ## Context
 - Current Typer-based CLI has regression coverage limited to `status` dry-run flows.
@@ -33,7 +35,7 @@
 ## Follow-up Notes
 - Future work: integrate CLI command tests into CI smoke suite to prevent regressions.
 
-## Execution Log
+## Execution Record (2025-10-03)
 - Implemented shared CLI testing utilities for Loguru capture and in-memory AppConfig fabrication.
 - Added comprehensive command coverage in `tests/cli/test_cli_commands.py`, including summarize, serve, ingest, embed, and config subcommands.
 - Introduced `tests/cli/__init__.py` to enable package-relative imports and reused helpers in existing status tests.

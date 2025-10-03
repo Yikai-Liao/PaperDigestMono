@@ -1,4 +1,6 @@
-## Python
+# 环境约束
+Status: Reference
+Last-updated: 2025-10-02
 
 ## Python
 

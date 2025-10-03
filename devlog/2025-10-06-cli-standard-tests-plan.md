@@ -1,4 +1,6 @@
 # CLI 标准化测试与清洁化修正计划（2025-10-06）
+Status: Completed
+Last-updated: 2025-10-03
 
 ## 现状
 - Typer 重构后的 CLI 尚无针对顶层 callback 和 `status`、`summarize` 等通用命令的系统化测试覆盖，`tests/cli` 仅验证 `serve --dry-run` 与配置子命令。
@@ -28,7 +30,7 @@
 ## 后续跟踪
 - 根据测试效果评估是否需要为其它 Typer 子命令（如 `ingest`、`embed` 标准路径）补充集成测试，纳入 TODO 列表。
 
-## 执行记录（2025-10-06）
+## 执行记录（2025-10-03）
 - 复用最小化配置生成器新增 `tests/cli/test_cli_status.py`，覆盖 `status --dry-run` 与顶层 `--dry-run` 两条关键路径。
 - 抽取 `_process_embedding_backlog` 辅助函数，简化 `embed` 命令中 backlog 分支的控制流，实现与原逻辑等价的日志与计数行为。
 - 使用 `uv run --no-progress pytest tests/cli/test_cli_status.py`、`uv run --no-progress pytest tests/cli` 与 `uv run --no-progress pytest` 验证所有测试全绿。

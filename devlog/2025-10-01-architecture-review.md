@@ -1,4 +1,6 @@
 # 架构文档更新开发计划（2025-10-01）
+Status: In Progress
+Last-updated: 2025-10-01
 
 ## 一、背景与目标
 
@@ -136,11 +138,11 @@
 - 2025-10-01 提交记录：`9f7260b3ab03ee846511ba13475caae4dc367b46`（包含 T2-T4 变更）
 - 2025-10-02 T5 完成：新增配置模型（llm/recommend/summary）、扩充测试（12 测试通过）、更新 CLI 与 architecture.md
 - 2025-10-02 T5 提交记录：`2fd9da3`（已推送远程）
-- 2025-10-02 T6/T7：推荐与摘要管线正在本地迭代，尚未提交，参考 `devlog/2025-10-config-refactor-plan.md` 中的执行记录
+- 2025-10-02 T6/T7：推荐与摘要管线正在本地迭代，尚未提交，参考 `devlog/2025-10-02-config-refactor-plan.md` 中的执行记录
 
 ### 后续任务索引
 
-更长周期的任务规划（T6-T10）已转移至独立开发计划：`devlog/2025-10-config-refactor-plan.md`。
+更长周期的任务规划（T6-T10）已转移至独立开发计划：`devlog/2025-10-02-config-refactor-plan.md`。
 
 
 ### 标准化验收方式

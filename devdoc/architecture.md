@@ -1,4 +1,6 @@
 # 论文推送系统单例化重构
+Status: Reference
+Last-updated: 2025-10-02
 
 ## 功能概览
 

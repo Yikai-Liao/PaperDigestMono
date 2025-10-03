@@ -1,4 +1,6 @@
 # 数据迁移开发计划（2025-10-08）
+Status: In Progress
+Last-updated: 2025-10-03
 
 ## 1. 背景与目标
 - 当前仓库已重构出本地优先的数据管线，但历史数据仍散落在 `reference/ArxivEmbedding`、`reference/PaperDigest`、`reference/PaperDigestAction` 以及 Hugging Face 数据集中，尚未迁移到新的 `metadata/`、`embeddings/`、`preference/`、`summarized/` 目录结构。

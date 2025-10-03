@@ -1,8 +1,10 @@
 # 配置拆分与管线落地开发计划（2025-10-02）
+Status: In Progress
+Last-updated: 2025-10-02
 
 ## 1. 背景与目标
 
-在 `devdoc/architecture.md` 与 `devlog/2025-10-architecture-review.md` 中已经完成了新架构蓝图与初步实现（`papersys` 包骨架、基础配置加载、CLI 入口）。接下来需要将历史仓库（`reference/PaperDigest`, `reference/PaperDigestAction`）中的推荐与摘要管线逐步迁移到单例化架构中，同时扩展配置体系，使业务逻辑可以通过强类型的 Pydantic 模型直接访问配置字段。
+在 `devdoc/architecture.md` 与 `devlog/2025-10-01-architecture-review.md` 中已经完成了新架构蓝图与初步实现（`papersys` 包骨架、基础配置加载、CLI 入口）。接下来需要将历史仓库（`reference/PaperDigest`, `reference/PaperDigestAction`）中的推荐与摘要管线逐步迁移到单例化架构中，同时扩展配置体系，使业务逻辑可以通过强类型的 Pydantic 模型直接访问配置字段。
 
 本阶段目标：
 
@@ -34,7 +36,7 @@
 
 ## 4. 校验流程
 
-1. 每个任务完成后，更新 `devlog/2025-10-architecture-review.md` 与本文件的状态（如有新增风险或变更计划需同步）；记录可回滚的 git 提交哈希。
+1. 每个任务完成后，更新 `devlog/2025-10-01-architecture-review.md` 与本文件的状态（如有新增风险或变更计划需同步）；记录可回滚的 git 提交哈希。
 2. 统一使用 `uv run --no-progress` 执行所有命令，保证环境一致性。
 3. 在 `devdoc/architecture.md` 中补充落地后的结构变化或新增的模块说明。
 4. 每个阶段结束前执行 `git status`、`git add`、`git commit`、`git push`，并在日志中记录提交 ID。
