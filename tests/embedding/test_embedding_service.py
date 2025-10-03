@@ -126,7 +126,7 @@ def test_detect_backlog(test_service: EmbeddingService, test_csv: Path, tmp_path
     """Test detecting CSV files without embeddings."""
     metadata_dir = test_csv.parent.parent
     model_alias = "test_model"
-    
+
     # Initially, no embeddings exist
     backlog = test_service.detect_backlog(metadata_dir, model_alias)
     assert len(backlog) == 1
@@ -146,6 +146,33 @@ def test_detect_backlog(test_service: EmbeddingService, test_csv: Path, tmp_path
     # Now backlog should be empty
     backlog = test_service.detect_backlog(metadata_dir, model_alias)
     assert len(backlog) == 0
+
+
+def test_detect_backlog_flat_structure(test_service: EmbeddingService, tmp_path: Path) -> None:
+    """Backlog detection should support flat metadata-YYYY.csv layout."""
+    metadata_dir = tmp_path / "metadata"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = metadata_dir / "metadata-2024.csv"
+
+    frame = pl.DataFrame(
+        {
+            "paper_id": ["2024.00001"],
+            "title": ["Paper"],
+            "abstract": ["Abstract"],
+            "categories": ["cs.AI"],
+            "primary_category": ["cs.AI"],
+            "authors": ["Author"],
+            "published_at": ["2024-01-01"],
+            "updated_at": ["2024-01-01"],
+            "doi": [""],
+            "comment": [""],
+            "journal_ref": [""],
+        }
+    )
+    frame.write_csv(csv_path)
+
+    backlog = test_service.detect_backlog(metadata_dir, "test_model")
+    assert backlog == [csv_path]
 
 
 def test_generate_embeddings_for_csv_with_limit(

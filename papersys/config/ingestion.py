@@ -11,8 +11,14 @@ class IngestionConfig(BaseConfig):
     """Configuration for metadata ingestion from arXiv."""
 
     enabled: bool = Field(True, description="Whether ingestion is enabled")
-    output_dir: str = Field("metadata/raw/arxiv", description="Output directory for raw metadata (CSV)")
-    curated_dir: str = Field("metadata/curated", description="Directory for curated metadata")
+    output_dir: str = Field(
+        "metadata",
+        description="Output directory (within the data root) for canonical metadata CSV files",
+    )
+    curated_dir: str = Field(
+        "metadata/curated",
+        description="Directory for curated or filtered metadata artefacts",
+    )
     
     # Fetch settings
     start_date: str | None = Field(None, description="Start date for incremental fetch (YYYY-MM-DD)")

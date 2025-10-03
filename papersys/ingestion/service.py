@@ -1,10 +1,11 @@
-"""Service for ingesting arXiv metadata and saving to CSV."""
+"""Service for ingesting arXiv metadata and writing canonical CSV outputs."""
 
 from __future__ import annotations
 
-import csv
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 import polars as pl
 from loguru import logger
@@ -13,19 +14,43 @@ from papersys.config.ingestion import IngestionConfig
 from papersys.ingestion.client import ArxivOAIClient, ArxivRecord
 
 
-class IngestionService:
-    """Service for fetching and saving arXiv metadata."""
+_COLUMN_ORDER: tuple[str, ...] = (
+    "paper_id",
+    "title",
+    "abstract",
+    "categories",
+    "primary_category",
+    "authors",
+    "published_at",
+    "updated_at",
+    "doi",
+    "comment",
+    "journal_ref",
+    "license",
+    "source",
+)
 
-    def __init__(self, config: IngestionConfig):
+_SCHEMA: dict[str, pl.DataType] = {column: pl.String for column in _COLUMN_ORDER}
+_SOURCE_TAG = "papersys.ingestion.oai"
+
+
+class IngestionService:
+    """Service for fetching arXiv metadata and saving to canonical CSV files."""
+
+    def __init__(self, config: IngestionConfig, base_path: Path | None = None):
         self.config = config
+        self.base_path = base_path
         self.client = ArxivOAIClient(
             base_url=config.oai_base_url,
             metadata_prefix=config.metadata_prefix,
             max_retries=config.max_retries,
             retry_delay=config.retry_delay,
         )
-        self.output_dir = Path(config.output_dir)
-        self.curated_dir = Path(config.curated_dir)
+        self.output_dir = self._resolve_output_dir(Path(config.output_dir), base_path)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.curated_dir = self._resolve_output_dir(Path(config.curated_dir), base_path)
+        self.curated_dir.mkdir(parents=True, exist_ok=True)
+        self.latest_path = self.output_dir / "latest.csv"
 
     def fetch_and_save(
         self,
@@ -34,64 +59,82 @@ class IngestionService:
         limit: int | None = None,
     ) -> tuple[int, int]:
         """
-        Fetch records from arXiv and save to CSV.
+        Fetch records from arXiv and save them to yearly CSV files under `output_dir`.
+
+        Records are grouped by publication year and written to `metadata-YYYY.csv` files.
+        A consolidated `latest.csv` snapshot is refreshed on each successful flush.
 
         Args:
-            from_date: Start date in YYYY-MM-DD format (defaults to config.start_date)
-            until_date: End date in YYYY-MM-DD format (defaults to config.end_date)
-            limit: Maximum number of records to fetch (for testing)
+            from_date: Start date in YYYY-MM-DD format (defaults to config.start_date).
+            until_date: End date in YYYY-MM-DD format (defaults to config.end_date).
+            limit: Maximum number of records to persist (testing convenience).
 
         Returns:
-            Tuple of (total_fetched, total_saved)
+            Tuple of (total_fetched, total_saved) counts.
         """
         from_date = from_date or self.config.start_date
         until_date = until_date or self.config.end_date
 
         logger.info(
-            "Starting ingestion: from={}, until={}, categories={}",
+            "Starting ingestion: from={}, until={}, categories={}, limit={}",
             from_date,
             until_date,
             self.config.categories,
+            limit,
         )
 
         total_fetched = 0
         total_saved = 0
-        batch_buffer: list[dict] = []
+        buffer: list[dict[str, str]] = []
 
-        # Fetch all records and filter by category
         try:
             for record in self.client.list_records(
                 from_date=from_date,
                 until_date=until_date,
-                set_spec=None,  # Don't use set filtering; filter client-side instead
+                set_spec=None,
             ):
                 total_fetched += 1
 
-                # Filter by primary category
-                if record.primary_category not in self.config.categories:
+                if self.config.categories and record.primary_category not in self.config.categories:
                     continue
 
-                batch_buffer.append(self._record_to_dict(record))
+                buffer.append(self._record_to_row(record))
 
-                # Save batch when buffer is full
-                if len(batch_buffer) >= self.config.batch_size:
-                    self._save_batch(batch_buffer)
-                    total_saved += len(batch_buffer)
-                    batch_buffer.clear()
-                    logger.debug("Saved batch; total saved: {}", total_saved)
+                if limit is not None:
+                    remaining = max(limit - total_saved, 0)
+                    if remaining == 0:
+                        logger.info("Reached save limit of {} records", limit)
+                        break
+                    if len(buffer) >= remaining:
+                        rows_to_save = buffer[:remaining]
+                        self._flush_rows(rows_to_save)
+                        total_saved += len(rows_to_save)
+                        buffer.clear()
+                        logger.info("Reached save limit of {} records", limit)
+                        break
 
-                # Check limit for testing
-                if limit and total_saved >= limit:
-                    logger.info("Reached save limit of {} records", limit)
-                    break
+                if len(buffer) >= self.config.batch_size:
+                    self._flush_rows(buffer)
+                    total_saved += len(buffer)
+                    buffer.clear()
 
         except Exception as exc:
             logger.error("Failed to fetch records: {}", exc)
 
-        # Save remaining records
-        if batch_buffer:
-            self._save_batch(batch_buffer)
-            total_saved += len(batch_buffer)
+        if buffer and (limit is None or total_saved < limit):
+            if limit is not None:
+                remaining = max(limit - total_saved, 0)
+                if remaining <= 0:
+                    buffer.clear()
+                else:
+                    rows_to_save = buffer[:remaining]
+                    self._flush_rows(rows_to_save)
+                    total_saved += len(rows_to_save)
+                    buffer.clear()
+            else:
+                self._flush_rows(buffer)
+                total_saved += len(buffer)
+                buffer.clear()
 
         logger.info(
             "Ingestion complete: fetched={}, saved={}",
@@ -100,117 +143,141 @@ class IngestionService:
         )
         return total_fetched, total_saved
 
-    def _record_to_dict(self, record: ArxivRecord) -> dict:
-        """Convert ArxivRecord to dictionary for CSV serialization."""
+    def deduplicate_csv_files(self) -> int:
+        """Deduplicate yearly CSV files and refresh `latest.csv`."""
+
+        total_removed = 0
+        for year_file in sorted(self.output_dir.glob("metadata-*.csv")):
+            try:
+                frame = pl.read_csv(year_file, schema_overrides=_SCHEMA)
+                frame = self._normalise_dataframe(frame)
+                original_count = frame.height
+                frame = self._deduplicate_dataframe(frame)
+                removed = original_count - frame.height
+                if removed > 0:
+                    frame.select(_COLUMN_ORDER).write_csv(year_file)
+                    total_removed += removed
+                    logger.info(
+                        "Deduplicated {}: removed {} duplicates",
+                        year_file.name,
+                        removed,
+                    )
+            except Exception as exc:
+                logger.error("Failed to deduplicate {}: {}", year_file, exc)
+
+        if total_removed > 0:
+            self._update_latest_view()
+
+        return total_removed
+
+    def _flush_rows(self, rows: Iterable[dict[str, str]]) -> None:
+        grouped: dict[int, list[dict[str, str]]] = defaultdict(list)
+        for row in rows:
+            year = self._extract_year(row.get("published_at", ""))
+            if year is None:
+                logger.warning("Skipping record with invalid published_at: {}", row)
+                continue
+            grouped[year].append(row)
+
+        for year, year_rows in grouped.items():
+            self._write_year_file(year, year_rows)
+
+        if grouped:
+            self._update_latest_view()
+
+    def _write_year_file(self, year: int, rows: list[dict[str, str]]) -> None:
+        if not rows:
+            return
+
+        year_path = self.output_dir / f"metadata-{year}.csv"
+        new_frame = self._build_frame(rows)
+
+        if year_path.exists():
+            existing_frame = pl.read_csv(year_path, schema_overrides=_SCHEMA)
+            existing_frame = self._normalise_dataframe(existing_frame)
+            combined = pl.concat([existing_frame, new_frame], how="vertical_relaxed")
+        else:
+            combined = new_frame
+
+        combined = self._deduplicate_dataframe(combined)
+        combined.select(_COLUMN_ORDER).write_csv(year_path)
+        logger.debug("Wrote {} records to {}", len(rows), year_path)
+
+    def _update_latest_view(self) -> None:
+        year_files = sorted(self.output_dir.glob("metadata-*.csv"))
+        if not year_files:
+            return
+
+        lazy_frames = [
+            pl.scan_csv(year_file, schema_overrides=_SCHEMA)
+            for year_file in year_files
+        ]
+        combined = pl.concat(lazy_frames, how="vertical_relaxed").collect()
+        combined = self._deduplicate_dataframe(combined)
+        combined.select(_COLUMN_ORDER).write_csv(self.latest_path)
+        logger.debug("Refreshed latest.csv with {} records", combined.height)
+
+    def _record_to_row(self, record: ArxivRecord) -> dict[str, str]:
         return {
             "paper_id": record.paper_id,
             "title": record.title,
             "abstract": record.abstract,
-            "categories": "|".join(record.categories),  # Pipe-separated
+            "categories": ";".join(record.categories),
             "primary_category": record.primary_category,
-            "authors": "|".join(record.authors),  # Pipe-separated
-            "published_at": record.published_at,
-            "updated_at": record.updated_at,
+            "authors": ";".join(record.authors),
+            "published_at": record.published_at or "",
+            "updated_at": record.updated_at or "",
             "doi": record.doi or "",
             "comment": record.comment or "",
             "journal_ref": record.journal_ref or "",
+            "license": record.license or "",
+            "source": _SOURCE_TAG,
         }
 
-    def _save_batch(self, batch: list[dict]) -> None:
-        """Save batch of records to CSV file, organized by year."""
-        if not batch:
-            return
+    def _build_frame(self, rows: list[dict[str, str]]) -> pl.DataFrame:
+        frame = pl.DataFrame(rows, schema=_SCHEMA)
+        return self._normalise_dataframe(frame)
 
-        # Group by publication year
-        by_year: dict[int, list[dict]] = {}
-        for item in batch:
+    def _normalise_dataframe(self, frame: pl.DataFrame) -> pl.DataFrame:
+        # Ensure all expected columns exist and are typed as strings.
+        missing = [column for column in _COLUMN_ORDER if column not in frame.columns]
+        if missing:
+            frame = frame.with_columns([pl.lit("").alias(column) for column in missing])
+
+        for column in _COLUMN_ORDER:
+            frame = frame.with_columns(pl.col(column).cast(pl.String, strict=False))
+
+        return frame.select(_COLUMN_ORDER)
+
+    def _deduplicate_dataframe(self, frame: pl.DataFrame) -> pl.DataFrame:
+        sorted_frame = frame.sort(
+            ["paper_id", "updated_at"],
+            descending=[False, True],
+        )
+        deduped = (
+            sorted_frame
+            .unique(subset=["paper_id"], keep="first")
+            .sort(["published_at", "paper_id"], descending=[True, False])
+        )
+        return deduped
+
+    def _extract_year(self, value: str) -> int | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value).year
+        except ValueError:
             try:
-                # Parse YYYY-MM-DD from published_at
-                year = int(item["published_at"][:4])
-            except (ValueError, IndexError):
-                logger.warning("Invalid published_at format: {}", item.get("published_at"))
-                continue
+                return int(value[:4])
+            except (ValueError, TypeError):
+                return None
 
-            by_year.setdefault(year, []).append(item)
-
-        # Save each year's records
-        for year, records in by_year.items():
-            year_dir = self.output_dir / str(year)
-            year_dir.mkdir(parents=True, exist_ok=True)
-
-            csv_path = year_dir / f"arxiv_{year}.csv"
-            file_exists = csv_path.exists()
-
-            # Append to CSV
-            with csv_path.open("a", newline="", encoding="utf-8") as f:
-                fieldnames = [
-                    "paper_id",
-                    "title",
-                    "abstract",
-                    "categories",
-                    "primary_category",
-                    "authors",
-                    "published_at",
-                    "updated_at",
-                    "doi",
-                    "comment",
-                    "journal_ref",
-                ]
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerows(records)
-
-            logger.debug("Appended {} records to {}", len(records), csv_path)
-
-    def deduplicate_csv_files(self) -> int:
-        """
-        Deduplicate CSV files by paper_id and keep the latest version.
-
-        Returns:
-            Total number of duplicates removed
-        """
-        total_removed = 0
-
-        schema_overrides = {
-            "paper_id": pl.String,
-            "title": pl.String,
-            "abstract": pl.String,
-            "categories": pl.String,
-            "primary_category": pl.String,
-            "authors": pl.String,
-            "published_at": pl.String,
-            "updated_at": pl.String,
-            "doi": pl.String,
-            "comment": pl.String,
-            "journal_ref": pl.String,
-        }
-
-        for year_dir in self.output_dir.iterdir():
-            if not year_dir.is_dir():
-                continue
-
-            for csv_path in year_dir.glob("*.csv"):
-                try:
-                    # Read with polars and explicit schema
-                    df = pl.read_csv(csv_path, schema_overrides=schema_overrides)
-                    original_count = len(df)
-
-                    # Sort by updated_at descending, then deduplicate by paper_id
-                    df = df.sort("updated_at", descending=True)
-                    df = df.unique(subset=["paper_id"], keep="first")
-
-                    removed = original_count - len(df)
-                    if removed > 0:
-                        # Write back
-                        df.write_csv(csv_path)
-                        logger.info("Deduplicated {}: removed {} duplicates", csv_path.name, removed)
-                        total_removed += removed
-
-                except Exception as exc:
-                    logger.error("Failed to deduplicate {}: {}", csv_path, exc)
-
-        return total_removed
+    def _resolve_output_dir(self, raw_path: Path, base_path: Path | None) -> Path:
+        if raw_path.is_absolute():
+            return raw_path
+        if base_path is not None:
+            return base_path / raw_path
+        return raw_path
 
 
 __all__ = ["IngestionService"]

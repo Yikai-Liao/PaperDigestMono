@@ -11,7 +11,7 @@ logging_level = "INFO"
 # Ingestion configuration
 [ingestion]
 enabled = true
-output_dir = "metadata/raw/arxiv"
+output_dir = "metadata"
 curated_dir = "metadata/curated"
 start_date = ""  # Leave empty for continuous mode
 end_date = ""

@@ -365,7 +365,9 @@ class EmbeddingService:
         })
 
         # Determine output path
-        year = csv_path.parent.name
+        year = self._infer_year_from_path(csv_path)
+        if year is None:
+            raise ValueError(f"Unable to infer year from CSV path: {csv_path}")
         model_dir = self.output_dir / model_config.alias
         model_dir.mkdir(parents=True, exist_ok=True)
         output_path = model_dir / f"{year}.parquet"
@@ -400,18 +402,27 @@ class EmbeddingService:
                 year = parquet_path.stem
                 existing_parquets.add(year)
 
-        # Find CSV files without embeddings
-        backlog = []
-        for year_dir in metadata_dir.iterdir():
-            if not year_dir.is_dir():
+        csv_candidates = [
+            path
+            for path in metadata_dir.glob("metadata-*.csv")
+            if path.is_file()
+        ]
+
+        if not csv_candidates:
+            for year_dir in metadata_dir.iterdir():
+                if not year_dir.is_dir():
+                    continue
+                csv_candidates.extend(path for path in year_dir.glob("*.csv") if path.is_file())
+
+        backlog: list[Path] = []
+        for csv_path in csv_candidates:
+            year = self._infer_year_from_path(csv_path)
+            if year is None:
+                logger.warning("Skipping metadata file without detectable year: {}", csv_path)
                 continue
-            
-            year = year_dir.name
             if year in existing_parquets:
                 continue
-            
-            for csv_path in year_dir.glob("*.csv"):
-                backlog.append(csv_path)
+            backlog.append(csv_path)
 
         logger.info(
             "Found {} CSV files in backlog for model {}",
@@ -419,6 +430,20 @@ class EmbeddingService:
             model_alias,
         )
         return backlog
+
+    @staticmethod
+    def _infer_year_from_path(csv_path: Path) -> str | None:
+        """Try to infer the year string from either the parent directory or filename."""
+        parent_name = csv_path.parent.name
+        if parent_name.isdigit() and len(parent_name) == 4:
+            return parent_name
+
+        stem = csv_path.stem
+        for token in stem.replace("_", "-").split("-"):
+            if token.isdigit() and len(token) == 4:
+                return token
+
+        return None
 
 
 __all__ = ["EmbeddingService"]

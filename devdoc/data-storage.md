@@ -52,7 +52,7 @@ data/
 | `comment` | `str` | arXiv Comment | 同上 |
 | `journal_ref` | `str` | 期刊收录信息 | 同上 |
 | `license` | `str` | 授权协议 | 同上 |
-| `source` | `str`（恒为 `legacy_migration`） | 迁移来源 | 迁移脚本注入 |
+| `source` | `str`（如 `legacy_migration`、`papersys.ingestion.oai`） | 数据来源标识 | 迁移脚本或服务注入 |
 
 **优点**
 - 保持与迁移脚本 `LegacyMigrator` 输出一致，便于增量更新。
@@ -61,6 +61,11 @@ data/
 **不足**
 - 对长文本字段无压缩，单文件体积较大。
 - `categories`、`authors` 串接后丢失结构化信息，后续若要分析需再拆分。
+
+#### 写入流程
+1. 通过 `papersys.ingestion.service.IngestionService` 拉取 OAI-PMH 流，按年份分桶写入 `metadata-YYYY.csv` 并自动刷新 `latest.csv` 汇总。
+2. 列表字段（`categories`、`authors`）使用分号（`;`）连接，保证与下游 `polars`/`duckdb` 解析兼容。
+3. CLI `papersys ingest` 与样例脚本 `scripts/run_ingestion_sample.py` 会在加载配置后根据 `AppConfig.data_root` 自动解析输出目录；测试或演示场景可通过 `--limit` 限制写入规模。
 
 ### 2. 向量（`data/embeddings/<model_alias>/`）
 

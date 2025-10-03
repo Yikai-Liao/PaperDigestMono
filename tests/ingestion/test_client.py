@@ -44,6 +44,7 @@ def test_parse_record_valid(oai_client: ArxivOAIClient) -> None:
                 <arxiv:updated>2023-01-02</arxiv:updated>
                 <arxiv:doi>10.1234/test.2023</arxiv:doi>
                 <arxiv:comments>5 pages</arxiv:comments>
+                <arxiv:license>http://arxiv.org/licenses/nonexclusive-distrib/1.0/</arxiv:license>
             </arxiv:arXiv>
         </metadata>
     </record>
@@ -64,6 +65,7 @@ def test_parse_record_valid(oai_client: ArxivOAIClient) -> None:
     assert result.updated_at == "2023-01-02"
     assert result.doi == "10.1234/test.2023"
     assert result.comment == "5 pages"
+    assert result.license == "http://arxiv.org/licenses/nonexclusive-distrib/1.0/"
 
 
 def test_parse_record_deleted(oai_client: ArxivOAIClient) -> None:

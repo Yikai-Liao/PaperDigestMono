@@ -1,8 +1,7 @@
-"""Tests for ingestion service."""
+"""Tests for the arXiv ingestion service."""
 
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -14,17 +13,34 @@ from papersys.ingestion.client import ArxivRecord
 from papersys.ingestion.service import IngestionService
 
 
+SCHEMA_OVERRIDES = {
+    "paper_id": pl.String,
+    "title": pl.String,
+    "abstract": pl.String,
+    "categories": pl.String,
+    "primary_category": pl.String,
+    "authors": pl.String,
+    "published_at": pl.String,
+    "updated_at": pl.String,
+    "doi": pl.String,
+    "comment": pl.String,
+    "journal_ref": pl.String,
+    "license": pl.String,
+    "source": pl.String,
+}
+
+
 @pytest.fixture
-def test_config(tmp_path: Path) -> IngestionConfig:
-    """Create test configuration."""
+def test_config() -> IngestionConfig:
+    """Create ingestion configuration for tests."""
     return IngestionConfig(
         enabled=True,
-        output_dir=str(tmp_path / "metadata" / "raw" / "arxiv"),
-        curated_dir=str(tmp_path / "metadata" / "curated"),
+        output_dir="metadata",
+        curated_dir="curated",
         start_date="2023-01-01",
         end_date="2023-01-31",
         batch_size=2,
-        max_retries=3,
+        max_retries=1,
         retry_delay=0.1,
         oai_base_url="http://export.arxiv.org/oai2",
         metadata_prefix="arXiv",
@@ -34,13 +50,13 @@ def test_config(tmp_path: Path) -> IngestionConfig:
 
 
 @pytest.fixture
-def test_service(test_config: IngestionConfig) -> IngestionService:
-    """Create test ingestion service."""
-    return IngestionService(test_config)
+def test_service(test_config: IngestionConfig, tmp_path: Path) -> IngestionService:
+    """Instantiate the ingestion service with a temporary base path."""
+    return IngestionService(test_config, base_path=tmp_path)
 
 
-def test_record_to_dict(test_service: IngestionService) -> None:
-    """Test converting ArxivRecord to dictionary."""
+def test_record_to_row(test_service: IngestionService) -> None:
+    """The row serialisation should normalise delimiters and optional fields."""
     record = ArxivRecord(
         paper_id="2301.00001",
         title="Test Paper",
@@ -53,199 +69,130 @@ def test_record_to_dict(test_service: IngestionService) -> None:
         doi="10.1234/test",
         comment="5 pages",
         journal_ref="Test Journal",
+        license="CC-BY-4.0",
     )
 
-    result = test_service._record_to_dict(record)
+    row = test_service._record_to_row(record)
 
-    assert result["paper_id"] == "2301.00001"
-    assert result["title"] == "Test Paper"
-    assert result["abstract"] == "Test abstract"
-    assert result["categories"] == "cs.AI|cs.CL"
-    assert result["primary_category"] == "cs.AI"
-    assert result["authors"] == "John Doe|Jane Smith"
-    assert result["published_at"] == "2023-01-01"
-    assert result["updated_at"] == "2023-01-02"
-    assert result["doi"] == "10.1234/test"
-    assert result["comment"] == "5 pages"
-    assert result["journal_ref"] == "Test Journal"
+    assert row["categories"] == "cs.AI;cs.CL"
+    assert row["authors"] == "John Doe;Jane Smith"
+    assert row["license"] == "CC-BY-4.0"
+    assert row["source"] == "papersys.ingestion.oai"
 
 
-def test_save_batch(test_service: IngestionService, tmp_path: Path) -> None:
-    """Test saving batch of records to CSV."""
-    batch = [
+def test_flush_rows_creates_year_files(test_service: IngestionService) -> None:
+    """Flushing rows should create yearly files and the latest snapshot."""
+    record1 = ArxivRecord(
+        paper_id="2301.00001",
+        title="Paper 1",
+        abstract="Abstract 1",
+        categories=["cs.AI"],
+        primary_category="cs.AI",
+        authors=["John Doe"],
+        published_at="2023-01-01",
+        updated_at="2023-01-01",
+    )
+    record2 = ArxivRecord(
+        paper_id="2301.00002",
+        title="Paper 2",
+        abstract="Abstract 2",
+        categories=["cs.CL"],
+        primary_category="cs.CL",
+        authors=["Jane Smith"],
+        published_at="2023-01-02",
+        updated_at="2023-01-02",
+    )
+
+    rows = [test_service._record_to_row(record1), test_service._record_to_row(record2)]
+    test_service._flush_rows(rows)
+
+    year_path = test_service.output_dir / "metadata-2023.csv"
+    latest_path = test_service.output_dir / "latest.csv"
+
+    assert year_path.exists()
+    assert latest_path.exists()
+
+    df_year = pl.read_csv(year_path, schema_overrides=SCHEMA_OVERRIDES)
+    df_latest = pl.read_csv(latest_path, schema_overrides=SCHEMA_OVERRIDES)
+
+    assert df_year.height == 2
+    assert df_latest.height == 2
+    assert "cs.AI;" not in df_year["categories"].to_list()[0]  # Already normalised
+
+
+def test_flush_rows_updates_existing_records(test_service: IngestionService) -> None:
+    """Later updates should win when paper_id matches."""
+    initial = ArxivRecord(
+        paper_id="2301.00001",
+        title="Initial",
+        abstract="Old",
+        categories=["cs.AI"],
+        primary_category="cs.AI",
+        authors=["John Doe"],
+        published_at="2023-01-01",
+        updated_at="2023-01-01",
+        comment="old",
+    )
+    updated = ArxivRecord(
+        paper_id="2301.00001",
+        title="Updated",
+        abstract="New",
+        categories=["cs.AI"],
+        primary_category="cs.AI",
+        authors=["John Doe"],
+        published_at="2023-01-01",
+        updated_at="2023-01-05",
+        comment="new",
+    )
+
+    test_service._flush_rows([test_service._record_to_row(initial)])
+    test_service._flush_rows([test_service._record_to_row(updated)])
+
+    year_path = test_service.output_dir / "metadata-2023.csv"
+    df_year = pl.read_csv(year_path, schema_overrides=SCHEMA_OVERRIDES)
+
+    assert df_year.height == 1
+    assert df_year["title"].to_list() == ["Updated"]
+    assert df_year["comment"].to_list() == ["new"]
+
+
+def test_deduplicate_csv_files(test_service: IngestionService) -> None:
+    """Explicit deduplication should remove duplicate identifiers."""
+    year_path = test_service.output_dir / "metadata-2023.csv"
+    frame = pl.DataFrame(
         {
-            "paper_id": "2301.00001",
-            "title": "Paper 1",
-            "abstract": "Abstract 1",
-            "categories": "cs.AI",
-            "primary_category": "cs.AI",
-            "authors": "John Doe",
-            "published_at": "2023-01-01",
-            "updated_at": "2023-01-01",
-            "doi": "",
-            "comment": "",
-            "journal_ref": "",
-        },
-        {
-            "paper_id": "2301.00002",
-            "title": "Paper 2",
-            "abstract": "Abstract 2",
-            "categories": "cs.CL",
-            "primary_category": "cs.CL",
-            "authors": "Jane Smith",
-            "published_at": "2023-01-02",
-            "updated_at": "2023-01-02",
-            "doi": "",
-            "comment": "",
-            "journal_ref": "",
-        },
-    ]
-
-    test_service._save_batch(batch)
-
-    # Check that files were created
-    csv_2023 = Path(test_service.output_dir) / "2023" / "arxiv_2023.csv"
-    assert csv_2023.exists()
-
-    # Read and verify content (with explicit schema to preserve string types)
-    df = pl.read_csv(csv_2023, schema_overrides={"paper_id": pl.String})
-    assert len(df) == 2
-    assert df["paper_id"].to_list() == ["2301.00001", "2301.00002"]
-    assert df["title"].to_list() == ["Paper 1", "Paper 2"]
-
-
-def test_save_batch_appends(test_service: IngestionService, tmp_path: Path) -> None:
-    """Test that save_batch appends to existing CSV."""
-    batch1 = [
-        {
-            "paper_id": "2301.00001",
-            "title": "Paper 1",
-            "abstract": "Abstract 1",
-            "categories": "cs.AI",
-            "primary_category": "cs.AI",
-            "authors": "John Doe",
-            "published_at": "2023-01-01",
-            "updated_at": "2023-01-01",
-            "doi": "",
-            "comment": "",
-            "journal_ref": "",
+            "paper_id": ["1", "1", "2"],
+            "title": ["v1", "v2", "paper2"],
+            "abstract": ["a1", "a2", "a3"],
+            "categories": ["cs.AI", "cs.AI", "cs.CL"],
+            "primary_category": ["cs.AI", "cs.AI", "cs.CL"],
+            "authors": ["John", "John", "Jane"],
+            "published_at": ["2023-01-01", "2023-01-01", "2023-01-02"],
+            "updated_at": ["2023-01-01", "2023-01-02", "2023-01-02"],
+            "doi": ["", "", ""],
+            "comment": ["old", "new", ""],
+            "journal_ref": ["", "", ""],
+            "license": ["", "", ""],
+            "source": ["legacy", "legacy", "legacy"],
         }
-    ]
-
-    batch2 = [
-        {
-            "paper_id": "2301.00002",
-            "title": "Paper 2",
-            "abstract": "Abstract 2",
-            "categories": "cs.CL",
-            "primary_category": "cs.CL",
-            "authors": "Jane Smith",
-            "published_at": "2023-01-02",
-            "updated_at": "2023-01-02",
-            "doi": "",
-            "comment": "",
-            "journal_ref": "",
-        }
-    ]
-
-    test_service._save_batch(batch1)
-    test_service._save_batch(batch2)
-
-    # Check that records were appended
-    csv_2023 = Path(test_service.output_dir) / "2023" / "arxiv_2023.csv"
-    df = pl.read_csv(csv_2023, schema_overrides={"paper_id": pl.String})
-    assert len(df) == 2
-    assert df["paper_id"].to_list() == ["2301.00001", "2301.00002"]
-
-
-def test_deduplicate_csv_files(test_service: IngestionService, tmp_path: Path) -> None:
-    """Test deduplicating CSV files."""
-    # Create CSV with duplicates
-    output_dir = Path(test_service.output_dir)
-    year_dir = output_dir / "2023"
-    year_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = year_dir / "arxiv_2023.csv"
-
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "paper_id",
-                "title",
-                "abstract",
-                "categories",
-                "primary_category",
-                "authors",
-                "published_at",
-                "updated_at",
-                "doi",
-                "comment",
-                "journal_ref",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(
-            [
-                {
-                    "paper_id": "2301.00001",
-                    "title": "Paper 1 v1",
-                    "abstract": "Old abstract",
-                    "categories": "cs.AI",
-                    "primary_category": "cs.AI",
-                    "authors": "John Doe",
-                    "published_at": "2023-01-01",
-                    "updated_at": "2023-01-01",
-                    "doi": "",
-                    "comment": "",
-                    "journal_ref": "",
-                },
-                {
-                    "paper_id": "2301.00001",
-                    "title": "Paper 1 v2",
-                    "abstract": "New abstract",
-                    "categories": "cs.AI",
-                    "primary_category": "cs.AI",
-                    "authors": "John Doe",
-                    "published_at": "2023-01-01",
-                    "updated_at": "2023-01-02",  # Later version
-                    "doi": "",
-                    "comment": "",
-                    "journal_ref": "",
-                },
-                {
-                    "paper_id": "2301.00002",
-                    "title": "Paper 2",
-                    "abstract": "Abstract 2",
-                    "categories": "cs.CL",
-                    "primary_category": "cs.CL",
-                    "authors": "Jane Smith",
-                    "published_at": "2023-01-02",
-                    "updated_at": "2023-01-02",
-                    "doi": "",
-                    "comment": "",
-                    "journal_ref": "",
-                },
-            ]
-        )
+    )
+    year_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.write_csv(year_path)
 
     removed = test_service.deduplicate_csv_files()
-
     assert removed == 1
 
-    # Verify deduplicated content
-    df = pl.read_csv(csv_path, schema_overrides={"paper_id": pl.String})
-    assert len(df) == 2
-    assert df.filter(pl.col("paper_id") == "2301.00001")["title"].to_list() == ["Paper 1 v2"]
+    df_year = pl.read_csv(year_path, schema_overrides=SCHEMA_OVERRIDES)
+    assert df_year.height == 2
+    assert df_year.sort("paper_id")["comment"].to_list() == ["new", ""]
 
 
 @patch("papersys.ingestion.service.ArxivOAIClient.list_records")
 def test_fetch_and_save_with_limit(
     mock_list_records: Mock,
     test_service: IngestionService,
-    tmp_path: Path,
 ) -> None:
-    """Test fetch_and_save with limit."""
-    # Mock records
+    """The fetch loop should respect the record save limit."""
     mock_list_records.return_value = [
         ArxivRecord(
             paper_id="2301.00001",
@@ -284,6 +231,8 @@ def test_fetch_and_save_with_limit(
     assert fetched == 2
     assert saved == 2
 
-    # Verify CSV was created
-    csv_2023 = Path(test_service.output_dir) / "2023" / "arxiv_2023.csv"
-    assert csv_2023.exists()
+    year_path = test_service.output_dir / "metadata-2023.csv"
+    df_year = pl.read_csv(year_path, schema_overrides=SCHEMA_OVERRIDES)
+    assert df_year.height == 2
+    assert set(df_year["paper_id"].to_list()) == {"2301.00001", "2301.00002"}
+

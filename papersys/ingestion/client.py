@@ -27,6 +27,7 @@ class ArxivRecord:
     doi: str | None = None
     comment: str | None = None
     journal_ref: str | None = None
+    license: str | None = None
 
 
 class ArxivOAIClient:
@@ -186,6 +187,14 @@ class ArxivOAIClient:
         doi = metadata.findtext("arxiv:doi", namespaces=self.NAMESPACES)
         comment = metadata.findtext("arxiv:comments", namespaces=self.NAMESPACES)
         journal_ref = metadata.findtext("arxiv:journal-ref", namespaces=self.NAMESPACES)
+        license_elem = metadata.find("arxiv:license", self.NAMESPACES)
+        license_value: str | None = None
+        if license_elem is not None:
+            text_value = (license_elem.text or "").strip()
+            if text_value:
+                license_value = text_value
+            else:
+                license_value = license_elem.get("uri")
 
         return ArxivRecord(
             paper_id=identifier,
@@ -199,6 +208,7 @@ class ArxivOAIClient:
             doi=doi,
             comment=comment,
             journal_ref=journal_ref,
+            license=license_value,
         )
 
 

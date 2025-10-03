@@ -148,7 +148,8 @@ def serve(
         help="Set up the scheduler and report status without running the server",
     ),
 ) -> None:
-    config = _get_state(ctx).ensure_config()
+    state = _get_state(ctx)
+    config = state.ensure_config()
 
     scheduler_service = SchedulerService(config, dry_run=dry_run)
     scheduler_service.setup_jobs()
@@ -194,7 +195,8 @@ def ingest(
         help="Deduplicate CSV files after ingestion",
     ),
 ) -> None:
-    config = _get_state(ctx).ensure_config()
+    state = _get_state(ctx)
+    config = state.ensure_config()
 
     ingestion_cfg = config.ingestion
     if ingestion_cfg is None or not ingestion_cfg.enabled:
@@ -204,7 +206,13 @@ def ingest(
     assert ingestion_cfg is not None
     from papersys.ingestion import IngestionService
 
-    service = IngestionService(ingestion_cfg)
+    base_path = config.data_root
+    if base_path is None:
+        base_path = state.config_path.parent
+    elif not base_path.is_absolute():
+        base_path = (state.config_path.parent / base_path).resolve()
+
+    service = IngestionService(ingestion_cfg, base_path=base_path)
 
     logger.info("Starting ingestion: from={}, to={}, limit={}", from_date, until_date, limit)
     fetched, saved = service.fetch_and_save(
@@ -236,7 +244,8 @@ def embed(
         help="Process backlog (CSV files without embeddings)",
     ),
 ) -> None:
-    config = _get_state(ctx).ensure_config()
+    state = _get_state(ctx)
+    config = state.ensure_config()
 
     embedding_cfg = config.embedding
     if embedding_cfg is None or not embedding_cfg.enabled:
@@ -259,15 +268,29 @@ def embed(
         _exit(1)
 
     assert ingestion_cfg is not None
-    metadata_dir = Path(ingestion_cfg.output_dir)
+    base_path = config.data_root
+    if base_path is None:
+        base_path = state.config_path.parent
+    elif not base_path.is_absolute():
+        base_path = (state.config_path.parent / base_path).resolve()
+
+    metadata_dir_raw = Path(ingestion_cfg.output_dir)
+    metadata_dir = metadata_dir_raw if metadata_dir_raw.is_absolute() else base_path / metadata_dir_raw
 
     if backlog:
         _process_embedding_backlog(service, metadata_dir, model_config, limit)
         return
 
-    csv_files = list(metadata_dir.rglob("*.csv"))
+    csv_files = sorted(path for path in metadata_dir.glob("metadata-*.csv") if path.is_file())
     if not csv_files:
-        logger.error("No CSV files found in {}", metadata_dir)
+        csv_files = [
+            path
+            for path in metadata_dir.rglob("*.csv")
+            if path.is_file() and path.name != "latest.csv"
+        ]
+
+    if not csv_files:
+        logger.error("No metadata CSV files found in {}", metadata_dir)
         _exit(1)
 
     logger.info("Found {} CSV files", len(csv_files))
