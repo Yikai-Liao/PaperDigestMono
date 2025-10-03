@@ -128,9 +128,11 @@ def _vllm_embedding_worker(
 class EmbeddingService:
     """Service for generating embeddings from paper metadata."""
 
-    def __init__(self, config: EmbeddingConfig):
+    def __init__(self, config: EmbeddingConfig, base_path: Path | None = None):
         self.config = config
-        self.output_dir = Path(config.output_dir)
+        self._base_path = base_path
+        raw_output_dir = Path(config.output_dir)
+        self.output_dir = self._resolve_output_dir(raw_output_dir, base_path)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._default_device: str | None = None
 
@@ -520,6 +522,13 @@ class EmbeddingService:
         """Alias for refresh_backlog kept for backward compatibility."""
 
         return self.refresh_backlog(metadata_dir, model_config)
+
+    def _resolve_output_dir(self, raw_path: Path, base_path: Path | None) -> Path:
+        if raw_path.is_absolute():
+            return raw_path
+        if base_path is not None:
+            return (base_path / raw_path).resolve()
+        return (Path.cwd() / raw_path).resolve()
 
     def _deduplicate_embeddings(self, frame: pl.DataFrame) -> pl.DataFrame:
         if frame.is_empty():

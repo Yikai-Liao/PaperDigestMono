@@ -55,7 +55,8 @@ Last-updated: 2025-10-11
 ## 验证结果
 - `uv run --no-progress pytest tests/embedding`
 - `uv run --no-progress env PYTHONPATH=. python scripts/run_embedding_sample.py --limit 5 --dry-run`
+- `uv run --no-progress env PYTHONPATH=. python scripts/run_embedding_sample.py --limit 5`
 
 ## 运行结论
-- 回归测试全绿（8 项）；dry-run 验证脚本可定位 `data/metadata/metadata-2000.csv` 并正确拆解参数，未执行实际向量生成。
+- 回归测试全绿（8 项）；真实脚本写入 `data/embeddings/jasper_v1/2000.parquet`（5 条）并刷新 `manifest.json`、`backlog.parquet`，dry-run 可预览计划。嵌入服务现统一使用 `AppConfig.data_root` 解析输出目录，不再向仓库根目录落盘。
 - backlog 刷新可区分“缺少年度文件”与“新增论文未嵌入”两种状态，`manifest.json` 会随 Parquet 更新实时同步计数。

@@ -56,7 +56,22 @@ class PredictConfig(BaseConfig):
     high_threshold: float = Field(0.85, ge=0.0, le=1.0, description="High-confidence threshold")
     boundary_threshold: float = Field(0.6, ge=0.0, le=1.0, description="Boundary threshold")
     sample_rate: float = Field(0.001, gt=0.0, le=1.0, description="Sampling rate for predictions")
-    output_path: str = Field(..., description="Output path for recommendation results")
+    output_dir: str = Field(
+        "./recommendations",
+        description="Directory for recommendation pipeline outputs (relative to data root if not absolute)",
+    )
+    output_path: str = Field(
+        "predictions.parquet",
+        description="Filename (or absolute path) for scored prediction output",
+    )
+    recommended_path: str = Field(
+        "recommended.parquet",
+        description="Filename (or absolute path) for recommended subset",
+    )
+    manifest_path: str = Field(
+        "manifest.json",
+        description="Filename (or absolute path) for recommendation manifest metadata",
+    )
 
 
 class RecommendPipelineConfig(BaseConfig):

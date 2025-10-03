@@ -14,7 +14,7 @@ from loguru import logger
 from .config import AppConfig, load_config
 from .config.embedding import EmbeddingConfig, EmbeddingModelConfig
 from .config.inspector import check_config, explain_config
-from .recommend import RecommendationDataLoader
+from .recommend import RecommendationDataLoader, RecommendationPipeline
 from .scheduler import SchedulerService
 from .summary import SummaryPipeline
 from .web import create_app
@@ -255,7 +255,13 @@ def embed(
     from papersys.embedding import EmbeddingService
 
     assert embedding_cfg is not None
-    service = EmbeddingService(embedding_cfg)
+    base_path = config.data_root
+    if base_path is None:
+        base_path = state.config_path.parent
+    elif not base_path.is_absolute():
+        base_path = (state.config_path.parent / base_path).resolve()
+
+    service = EmbeddingService(embedding_cfg, base_path=base_path)
 
     model_config = _select_embedding_model(embedding_cfg, model)
     if model_config is None:
@@ -268,11 +274,6 @@ def embed(
         _exit(1)
 
     assert ingestion_cfg is not None
-    base_path = config.data_root
-    if base_path is None:
-        base_path = state.config_path.parent
-    elif not base_path.is_absolute():
-        base_path = (state.config_path.parent / base_path).resolve()
 
     metadata_dir_raw = Path(ingestion_cfg.output_dir)
     metadata_dir = metadata_dir_raw if metadata_dir_raw.is_absolute() else base_path / metadata_dir_raw
@@ -331,6 +332,57 @@ def embed(
         total_count += count
     logger.info("Generated {} embeddings total", total_count)
     service.refresh_backlog(metadata_dir, model_config)
+
+
+@app.command(help="Run the recommendation pipeline")
+def recommend(
+    ctx: typer.Context,
+    force_all: bool = typer.Option(
+        False,
+        "--force-all",
+        help="Force include all scored candidates in the recommendation output",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        help="Inspect data sources without running training or prediction",
+    ),
+    output_dir: Path | None = typer.Option(
+        None,
+        help="Override output directory for recommendation artifacts",
+    ),
+) -> None:
+    state = _get_state(ctx)
+    config = state.ensure_config()
+
+    if config.recommend_pipeline is None:
+        logger.error("Recommendation pipeline is not configured")
+        _exit(1)
+
+    base_path = config.data_root
+    if base_path is None:
+        base_path = state.config_path.parent
+    elif not base_path.is_absolute():
+        base_path = (state.config_path.parent / base_path).resolve()
+
+    pipeline = RecommendationPipeline(config, base_path=base_path)
+    pipeline.describe_sources()
+
+    if dry_run:
+        logger.info("[Dry Run] Recommendation pipeline was not executed.")
+        return
+
+    resolved_output = output_dir
+    if resolved_output is not None and not resolved_output.is_absolute():
+        resolved_output = (base_path / resolved_output).resolve()
+
+    report = pipeline.run_and_save(
+        force_include_all=force_all,
+        output_dir=resolved_output,
+    )
+
+    logger.info("Recommendation predictions written to {}", report.predictions_path)
+    logger.info("Recommendation shortlist written to {}", report.recommended_path)
+    logger.info("Recommendation manifest written to {}", report.manifest_path)
 
 
 @config_app.command(help="Validate the configuration file")
@@ -477,7 +529,9 @@ def _report_system_status(config: AppConfig) -> None:
         logger.info("Embedding columns: {}", ", ".join(rp.data.embedding_columns))
         logger.info("Categories: {}", ", ".join(rp.data.categories))
         logger.info("Trainer seed: {}, bg_sample_rate: {}", rp.trainer.seed, rp.trainer.bg_sample_rate)
-        logger.info("Predict output: {}", rp.predict.output_path)
+        logger.info("Predict output dir: {}", rp.predict.output_dir)
+        logger.info("Predict file: {}", rp.predict.output_path)
+        logger.info("Recommended file: {}", rp.predict.recommended_path)
         try:
             base_path = config.data_root or Path.cwd()
             loader = RecommendationDataLoader(config, base_path=base_path)

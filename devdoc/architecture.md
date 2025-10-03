@@ -29,7 +29,7 @@ Last-updated: 2025-10-02
 
 - **论文元数据**：年度 Parquet，列包含 `id/title/abstract/categories/created/updated` 及多个模型向量列。
 - **向量数据**：与元数据合并存放，未完成时以全 0 或 `NaN` 占位。
-- **推荐结果**：`PaperDigest/data/predictions.parquet` 储存候选论文与打分。
+- **推荐结果**：`data/recommendations/<run_id>/predictions.parquet` 按次存储候选论文与打分，配套 `recommended.parquet`、`manifest.json` 追踪参数。
 - **摘要输出**：`raw/` 下的 JSON + `content/` 下的 Markdown；部分示例 JSON 放在 `examples/`。
 - **偏好反馈**：`preference/*.csv`，以 `arxiv_id` + `preference` 字段记录。
 
@@ -87,7 +87,7 @@ Last-updated: 2025-10-02
   - 年度 Parquet：`<year>.parquet`，字段包含 `id`（arXiv ID）、`title`、`abstract`、`categories`（list[str]）、`created`、`updated`、`doi` 以及多个嵌入列（如 `Embedding.jasper_v1`、`Embedding.m3e_large`，类型 list[float64]）。
   - GitHub Actions 负责上传至 Hugging Face，目录 `reference/ArxivEmbedding/script/` 中的 `incremental_embed_workflow.py` 使用本地缓存目录 `data/parquet/` 与 `data/cache/`。
 - **PaperDigest**（Hugging Face Dataset：`lyk/PaperDigestContent`）
-  - 推荐结果：`data/predictions.parquet`（列 `id`、`score`、`label`、`timestamp` 等）。
+  - 推荐结果：`data/recommendations/<run_id>/predictions.parquet`（含 `id`、`score`、`show`、`updated`、embedding 列等），配合 `recommended.parquet` 与 `manifest.json` 追踪参数与样本数。
   - 摘要产物：`raw/*.json`（结构化字段 `metadata`, `sections`, `highlights`）、`content/*.md`。
   - 偏好事件：`preference/*.csv`，列含 `arxiv_id`、`preference`、`source`、`recorded_at`。
 

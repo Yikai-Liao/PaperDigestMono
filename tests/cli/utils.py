@@ -15,7 +15,12 @@ from papersys.config import (
     EmbeddingModelConfig,
     IngestionConfig,
     LLMConfig,
+    LogisticRegressionConfig,
+    PredictConfig,
+    RecommendPipelineConfig,
     PdfFetchConfig,
+    TrainerConfig,
+    DataConfig,
     SummaryLLMConfig,
     SummaryPipelineConfig,
 )
@@ -38,6 +43,7 @@ def make_app_config(
     include_ingestion: bool = True,
     include_embedding: bool = True,
     include_summary: bool = True,
+    include_recommend: bool = False,
 ) -> AppConfig:
     """Construct an in-memory AppConfig tailored for CLI tests."""
 
@@ -123,6 +129,44 @@ def make_app_config(
             ),
         )
 
+    recommend_cfg = None
+    if include_recommend:
+        preference_dir = data_root / "preferences"
+        metadata_dir = data_root / "metadata"
+        embeddings_root = data_root / "embeddings"
+        for directory in (preference_dir, metadata_dir, embeddings_root):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        recommend_cfg = RecommendPipelineConfig(
+            data=DataConfig(
+                categories=["cs.AI"],
+                embedding_columns=["test"],
+                preference_dir=str(preference_dir.relative_to(data_root)),
+                metadata_dir=str(metadata_dir.relative_to(data_root)),
+                metadata_pattern="metadata-*.csv",
+                embeddings_root=str(embeddings_root.relative_to(data_root)),
+                background_start_year=2024,
+                preference_start_year=2024,
+            ),
+            trainer=TrainerConfig(
+                seed=42,
+                bg_sample_rate=1.0,
+                logistic_regression=LogisticRegressionConfig(C=1.0, max_iter=100),
+            ),
+            predict=PredictConfig(
+                last_n_days=7,
+                start_date="",
+                end_date="",
+                high_threshold=0.9,
+                boundary_threshold=0.7,
+                sample_rate=0.5,
+                output_dir="recommendations",
+                output_path="predictions.parquet",
+                recommended_path="recommended.parquet",
+                manifest_path="manifest.json",
+            ),
+        )
+
     return AppConfig(
         data_root=data_root,
         scheduler_enabled=False,
@@ -132,7 +176,7 @@ def make_app_config(
         embedding=embedding_cfg,
         summary_pipeline=summary_cfg,
         llms=llms,
-        recommend_pipeline=None,
+        recommend_pipeline=recommend_cfg,
         scheduler=None,
         backup=None,
     )

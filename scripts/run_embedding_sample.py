@@ -23,11 +23,15 @@ def _resolve_base_path(config: AppConfig, config_path: Path) -> Path:
     return (config_path.parent / base_path).resolve()
 
 
-def _select_model(config: AppConfig, alias: str | None) -> tuple[EmbeddingService, "EmbeddingModelConfig"]:
+def _select_model(
+    config: AppConfig,
+    base_path: Path,
+    alias: str | None,
+) -> tuple[EmbeddingService, "EmbeddingModelConfig"]:
     if config.embedding is None or not config.embedding.enabled:
         raise typer.BadParameter("Embedding is disabled in the configuration")
 
-    service = EmbeddingService(config.embedding)
+    service = EmbeddingService(config.embedding, base_path=base_path)
 
     if alias:
         for model in config.embedding.models:
@@ -94,7 +98,7 @@ def main(
 
     base_path = _resolve_base_path(config, config_path)
     metadata_dir = _metadata_dir(base_path, config)
-    service, model_config = _select_model(config, model)
+    service, model_config = _select_model(config, base_path, model)
 
     if not metadata_dir.exists():
         raise typer.BadParameter(f"Metadata directory not found: {metadata_dir}")
@@ -132,4 +136,3 @@ def main(
 
 if __name__ == "__main__":
     app()
-

@@ -139,6 +139,24 @@ CSV 采用 UTF-8 编码，不带表头注释，字段如下：
 - `lang` 值由历史数据提供，缺少校验流程；如添加新语言需确定值域。
 - 尚未拆分多语言或多版本摘要，后续如需更细粒度管理需拓展结构。
 
+### 5. 推荐结果（`data/recommendations/`）
+
+每次推荐运行会在时间戳命名的目录下生成完整输出：
+
+```
+data/recommendations/
+  20251004-083000/
+    predictions.parquet
+    recommended.parquet
+    manifest.json
+```
+
+- **predictions.parquet**：完整候选集合的评分结果，字段常见包括 `id`、`title`、`abstract`、`categories`、`updated`、`score`、`show`（0/1）以及各 embedding 列，用于审计模型打分与复现训练。
+- **recommended.parquet**：经过阈值与采样策略筛选的展示集合，保留核心字段（`id`、`title`、`abstract`、`score`、`updated` 等），embedding 列已移除以便摘要阶段直接消费。
+- **manifest.json**：记录生成时间、数据规模（preferred/background/scored/recommended 数量）、模型阈值（`high`、`boundary`、`sample_rate`、`last_n_days` 等）以及类别/向量列配置，便于追踪参数与增量运行。
+
+推荐流水线默认写入 `data_root/recommendations/`，可通过 CLI/脚本参数覆盖输出目录。下游摘要流程可结合 manifest 中的 `run_id`、计数及阈值信息挑选要处理的候选。
+
 ## 数据流动与交叉依赖
 
 1. **迁移阶段**：`LegacyMigrator` 自引用仓库 `reference/` 读取旧数据，生成上述目录结构。

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -173,7 +175,10 @@ def recommendation_config(tmp_path: Path) -> AppConfig:
             high_threshold=0.8,
             boundary_threshold=0.6,
             sample_rate=0.5,
+            output_dir="recommendations",
             output_path="predictions.parquet",
+            recommended_path="recommended.parquet",
+            manifest_path="manifest.json",
             start_date="",
             end_date="",
         ),
@@ -233,6 +238,30 @@ def test_pipeline_full_run(recommendation_config: AppConfig) -> None:
     assert artifacts.result.recommended.height >= 1
 
 
+def test_pipeline_run_and_save_outputs(recommendation_config: AppConfig) -> None:
+    base_path = Path(recommendation_config.data_root or Path.cwd())
+    pipeline = RecommendationPipeline(recommendation_config, base_path=base_path)
+
+    report = pipeline.run_and_save(
+        run_at=datetime(2025, 9, 30, 8, 30, tzinfo=timezone.utc),
+    )
+
+    assert report.output_dir.exists()
+    assert report.predictions_path.exists()
+    assert report.recommended_path.exists()
+    assert report.manifest_path.exists()
+
+    predictions = pl.read_parquet(report.predictions_path)
+    recommended = pl.read_parquet(report.recommended_path)
+    manifest = json.loads(report.manifest_path.read_text())
+
+    assert predictions.height == report.artifacts.result.scored.height
+    assert recommended.height == report.artifacts.result.recommended.height
+    assert manifest["counts"]["recommended"] == recommended.height
+    assert manifest["counts"]["preferred"] == report.artifacts.dataset.preferred.height
+    assert manifest["thresholds"]["sample_rate"] == recommendation_config.recommend_pipeline.predict.sample_rate
+
+
 def test_loader_accepts_paper_id_preferences(tmp_path: Path) -> None:
     data_root = tmp_path / "workspace"
     preference_dir = data_root / "preferences"
@@ -266,7 +295,10 @@ def test_loader_accepts_paper_id_preferences(tmp_path: Path) -> None:
             high_threshold=0.8,
             boundary_threshold=0.6,
             sample_rate=0.5,
+            output_dir="recommendations",
             output_path="predictions.parquet",
+            recommended_path="recommended.parquet",
+            manifest_path="manifest.json",
             start_date="",
             end_date="",
         ),
@@ -352,7 +384,10 @@ def test_loader_filters_nan_embeddings(tmp_path: Path) -> None:
             high_threshold=0.8,
             boundary_threshold=0.6,
             sample_rate=0.5,
+            output_dir="recommendations",
             output_path="predictions.parquet",
+            recommended_path="recommended.parquet",
+            manifest_path="manifest.json",
             start_date="",
             end_date="",
         ),

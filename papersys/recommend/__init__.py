@@ -7,7 +7,11 @@ from papersys.recommend.data import (
     RecommendationDataset,
     RecommendationDataSources,
 )
-from papersys.recommend.pipeline import PipelineArtifacts, RecommendationPipeline
+from papersys.recommend.pipeline import (
+    PipelineArtifacts,
+    PipelineRunReport,
+    RecommendationPipeline,
+)
 from papersys.recommend.predictor import (
     PredictionResult,
     RecommendationPredictor,
@@ -21,6 +25,7 @@ __all__ = [
     "RecommendationDataSources",
     "RecommendationPipeline",
     "PipelineArtifacts",
+    "PipelineRunReport",
     "RecommendationPredictor",
     "PredictionResult",
     "adaptive_sample",

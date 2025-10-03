@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import polars as pl
 
 from papersys.cli import main
 
@@ -196,8 +198,9 @@ def test_ingest_runs_service(
     instances: list[Any] = []
 
     class DummyIngestionService:
-        def __init__(self, cfg: Any) -> None:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
             self.cfg = cfg
+            self.base_path = base_path
             self.fetch_args: dict[str, Any] | None = None
             self.dedup_called = False
             instances.append(self)
@@ -262,14 +265,20 @@ def test_embed_backlog_flow(
     instances: list[Any] = []
 
     class DummyEmbeddingService:
-        def __init__(self, cfg: Any) -> None:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
             self.cfg = cfg
+            self.base_path = base_path
             instances.append(self)
 
-        def detect_backlog(self, metadata_dir: Path, alias: str) -> list[Path]:
+        def detect_backlog(self, metadata_dir: Path, model_cfg: Any) -> pl.DataFrame:
             backlog_calls["metadata_dir"] = metadata_dir
-            backlog_calls["alias"] = alias
-            return [metadata_dir / "backlog.csv"]
+            backlog_calls["alias"] = getattr(model_cfg, "alias", "")
+            path = metadata_dir / "backlog.csv"
+            return pl.DataFrame({"origin": [str(path)]})
+
+        def refresh_backlog(self, metadata_dir: Path, model_cfg: Any) -> pl.DataFrame:
+            backlog_calls["refreshed"] = True
+            return pl.DataFrame({"origin": []})
 
         def generate_embeddings_for_csv(
             self,
@@ -282,6 +291,11 @@ def test_embed_backlog_flow(
             return 3, None
 
     monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
+
+    assert config.ingestion is not None
+    metadata_dir = Path(config.ingestion.output_dir)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    (metadata_dir / "backlog.csv").write_text("paper_id,title\n1,Example\n", encoding="utf-8")
 
     exit_code = main(["--config", str(config_path), "embed", "--backlog", "--limit", "5"])
 
@@ -309,8 +323,9 @@ def test_embed_full_generation(
     instances: list[Any] = []
 
     class DummyEmbeddingService:
-        def __init__(self, cfg: Any) -> None:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
             self.cfg = cfg
+            self.base_path = base_path
             self.calls: list[Path] = []
             instances.append(self)
 
@@ -324,6 +339,9 @@ def test_embed_full_generation(
             self.calls.append(csv_path)
             return 1, None
 
+        def refresh_backlog(self, metadata_dir: Path, model_cfg: Any) -> None:  # pragma: no cover - CLI expectation
+            return None
+
     monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
 
     exit_code = main(["--config", str(config_path), "embed", "--limit", "2"])
@@ -331,6 +349,98 @@ def test_embed_full_generation(
     assert exit_code == 0
     assert instances
     assert instances[0].calls == [sample_csv]
+
+
+def test_recommend_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config_path: Path,
+) -> None:
+    config = make_app_config(tmp_path, include_recommend=True)
+    patch_load_config(monkeypatch, config)
+
+    calls: dict[str, Any] = {}
+
+    class DummyPipeline:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
+            calls["base_path"] = base_path
+            calls["describe"] = 0
+
+        def describe_sources(self) -> None:
+            calls["describe"] += 1
+
+        def run_and_save(self, **_: Any) -> None:
+            raise AssertionError("run_and_save should not execute during dry-run")
+
+    monkeypatch.setattr("papersys.cli.RecommendationPipeline", DummyPipeline)
+
+    exit_code = main(["--config", str(config_path), "recommend", "--dry-run"])
+
+    assert exit_code == 0
+    assert calls["describe"] == 1
+    assert calls["base_path"] is not None
+
+
+def test_recommend_executes_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config_path: Path,
+) -> None:
+    config = make_app_config(tmp_path, include_recommend=True)
+    patch_load_config(monkeypatch, config)
+
+    calls: dict[str, Any] = {}
+
+    class DummyPipeline:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
+            calls["base_path"] = base_path
+
+        def describe_sources(self) -> None:
+            calls["describe"] = True
+
+        def run_and_save(
+            self,
+            *,
+            force_include_all: bool,
+            output_dir: Path | None,
+        ) -> Any:
+            calls["force"] = force_include_all
+            calls["output_dir"] = output_dir
+            run_dir = tmp_path / "recommendation-run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            predictions_path = run_dir / "predictions.parquet"
+            recommended_path = run_dir / "recommended.parquet"
+            manifest_path = run_dir / "manifest.json"
+            predictions_path.write_text("", encoding="utf-8")
+            recommended_path.write_text("", encoding="utf-8")
+            manifest_path.write_text("{}", encoding="utf-8")
+            return SimpleNamespace(
+                output_dir=run_dir,
+                predictions_path=predictions_path,
+                recommended_path=recommended_path,
+                manifest_path=manifest_path,
+            )
+
+    monkeypatch.setattr("papersys.cli.RecommendationPipeline", DummyPipeline)
+
+    custom_output = Path("custom-output")
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "recommend",
+            "--force-all",
+            "--output-dir",
+            str(custom_output),
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["describe"] is True
+    assert calls["force"] is True
+    assert calls["output_dir"].is_absolute()
+    expected_output = (config.data_root / custom_output).resolve()
+    assert calls["output_dir"] == expected_output
 
 
 def test_config_check_json_output(

@@ -138,7 +138,10 @@ end_date = ""
 high_threshold = 0.85
 boundary_threshold = 0.6
 sample_rate = 0.001
-output_path = "./recommendations.parquet"
+output_dir = "recommendations"
+output_path = "predictions.parquet"
+recommended_path = "recommended.parquet"
+manifest_path = "manifest.json"
 
 # Summary pipeline configuration
 [summary_pipeline.pdf]
