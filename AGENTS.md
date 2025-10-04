@@ -24,6 +24,9 @@
 - 多文件或复杂改动前，必须在 `devlog/` 下新增变更计划 Markdown，覆盖现状、风险、方案与回滚策略，经确认后再动代码。
 - 命令行禁用交互式或需要人工确认的操作（如默认的 `git merge` 编辑器、`rm -i` 等）。若需合并，使用非交互命令组合完成。
 - 变更完成后按计划执行自动化测试并在 devlog 中记录结果与反思（若偏离预期）。
+- 调度者必须先拆解任务并按依赖顺序排期，禁止一次性并行推进多个未验收的单元。
+- 每个任务单元须在自身验收门槛达成后（测试通过、dry-run 无写入）才能启动下一项；若测试未过需立即止步修复。
+- 快速回归失败或门槛未达成时，禁止切换到新的 TODO，保持冻结状态直至恢复绿色。
 
 ## Collaboration mindset
 - 保持耐心细致：完整阅读相关代码与文档，再动手实现，拒绝“跳步骤”或侥幸通过测试。
@@ -45,7 +48,17 @@
  - 严禁在 `if/else` 或循环中堆叠大块代码；一旦嵌套超过 3 层，就拆分为独立函数或改用守卫子句以保持结构扁平。
 - 注释只用于表达意图或重要警告，勿冗余、勿保留注释掉的代码。
 - 结构整洁：相关逻辑上下相邻，变量贴近使用位置，保持合理空行与缩进。
-- 测试要快、独立、可重复，并针对变更补齐覆盖。
+- 测试要快、独立、可重复，并针对变更补齐覆盖；执行细则见下方“Testing discipline”。
+
+### Testing discipline
+- 以小样本数据（≤10 条）替代 mock 或真实大数据集，统一收敛到 tests/ 内的专用路径。
+- 禁止直接调用真实外部依赖（网络、LLM 等）；使用 stub、缓存或受控离线路径。
+- 将涉及外部依赖或高耗时用例标注为 `pytest.mark.slow` 或 `pytest.mark.integration`，默认不在快速回归中执行。
+- 快速回归目标：`uv run --no-progress pytest -q` 在 120s 内完成并全绿；slow/integration 用例移入夜间或专项流水线。
+- 在宣告任务完成前，必须追加或调整相关测试，并确保生成产物仅写入 `tmp/` 或测试专用目录。
+
+## Python Style Guide
+Write clean, idiomatic Python code following PEP 8. Use type hints, descriptive variable names, and comprehensive docstrings (Google or NumPy style). Favor composition over inheritance and explicit over implicit. Utilize list/dict comprehensions for clarity. Follow SOLID principles and design patterns appropriate for the task. Structure with contextual error handling - catch specific exceptions, not broad. Leverage batteries-included standard library before external dependencies. Implement testing with pytest including parameterized and edge cases. Use virtual environments with pinned dependencies. Run code quality checks with flake8, black (line length 88), mypy (strict mode), isort, and bandit for security. Optimize only after profiling identifies bottlenecks.
 
 ## Build & test commands
 - 全量测试：
@@ -59,11 +72,15 @@
   ```
 - 任何功能修改后都要更新/新增 pytest 用例，保持 `33`+ 项测试全绿。
 
-## Git & merge guidelines
+## Git & versioning
 - 合并使用非交互命令：`git merge --no-ff --no-edit <branch>`；如目标分支可 fast-forward，首选 `git merge --ff-only`。
 - 合并前执行 `git fetch --all` 并同步最新主干。
 - 提交前确保工作树整洁 (`git status -sb`)，必要时 `git restore` / `git clean`。
 - 推送前至少运行一次完整测试并确认通过。
+- 按任务单元拆分 1~3 个精细 commit，并在信息中记录验收门槛与回滚路径。
+- 每个通过验收的任务单元立即打轻量 tag（示例：`v2025-10-04-step1`），并在 devlog 记录创建原因与回滚指引。
+- 默认以 dry-run / 无写入方式验证；从 `tmp/` 迁移到正式路径前需复核哈希与行数。
+- 出现异常时第一时间回退至最近的绿色 tag，清理对应 `tmp/` 产物或 `.bak`，并同步 devlog 记录。
 
 ## PR review discipline
 - 默认将外部贡献者视作未经验证的同事，逐项核对需求是否被正确理解与完整实现。
@@ -85,3 +102,10 @@
 - 处理配置或鉴权时，优先复用现有 Pydantic 模型与 FastAPI 依赖注入。
 - 若需参考外部规范或已有实现，可查看 `reference/` 子模块及 `devlog` 历史记录。
 - 遇到大型或高风险改动，先起草计划并征求确认；必要时可在终端通过 `claude -p "总结一下这个项目"` 获取快速概览。
+
+## Task delegation template
+- 标题：`<模块>/<功能> 最小化修复（Step X）`，明确线性序号与责任人。
+- 输入：列出所需配置、测试与样例数据路径，确保可在 `tmp/` 环境复现。
+- 输出：提交通过的测试日志或截图，并附 `tmp/` 下的产物清单。
+- 验收门槛：不得改动非本模块文件，不得写入 `data/`，且必须追加或更新关联测试。
+- 回滚：说明恢复到上一个 tag 的步骤，并清理对应 `tmp/` 产物。

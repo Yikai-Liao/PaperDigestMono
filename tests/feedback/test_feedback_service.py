@@ -1,4 +1,6 @@
 """Tests for feedback service."""
+import os
+import requests
 import pytest
 from unittest.mock import patch, MagicMock
 import polars as pl
@@ -9,12 +11,14 @@ from papersys.config.publishing import PublishingConfig
 
 
 @pytest.fixture
-def config():
+def config(tmp_path):
+    prefs_dir = tmp_path / "preferences"
+    prefs_dir.mkdir()
     return FeedbackConfig(
         github_token="fake_token",
         owner="test_owner",
         repo="test_repo",
-        preferences_dir=Path("tests/data/preferences")
+        preferences_dir=prefs_dir
     )
 
 
@@ -49,7 +53,7 @@ def test_fetch_giscus_feedback_success(service):
         }
     }
 
-    with patch("requests.post") as mock_post:
+    with patch("papersys.feedback.service.requests.post") as mock_post:
         mock_post.return_value.json.return_value = mock_response
         mock_post.return_value.status_code = 200
 
@@ -63,7 +67,7 @@ def test_fetch_giscus_feedback_success(service):
 
 def test_fetch_giscus_feedback_failure(service):
     """Test giscus fetch failure."""
-    with patch("requests.post") as mock_post:
+    with patch("papersys.feedback.service.requests.post") as mock_post:
         mock_post.return_value.status_code = 401
         mock_post.return_value.text = "Unauthorized"
 
@@ -93,8 +97,15 @@ def test_update_preferences_csv(tmp_path, service):
         "url": ["url"]
     })
 
-    service.config.preferences_dir = prefs_dir
-    service._update_preferences_csv(feedback_df)
+    # Create a new service with updated config
+    new_config = FeedbackConfig(
+        github_token="fake_token",
+        owner="test_owner",
+        repo="test_repo",
+        preferences_dir=prefs_dir
+    )
+    new_service = FeedbackService(new_config)
+    new_service._update_preferences_csv(feedback_df)
 
     updated_df = pl.read_csv(csv_path)
     assert updated_df["preference"][0] == "like"

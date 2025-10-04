@@ -37,6 +37,12 @@ class PipelineRunReport:
     manifest_path: Path
 
 
+def run_recommend_pipeline(config: AppConfig, *, base_path: Optional[Path] = None, force_include_all: bool = False) -> PipelineRunReport:
+    """Run the full recommendation pipeline and save outputs."""
+    pipeline = RecommendationPipeline(config, base_path=base_path)
+    return pipeline.run_and_save(force_include_all=force_include_all)
+
+
 class RecommendationPipeline:
     """Convenience wrapper that wires together loader, trainer and predictor."""
 
