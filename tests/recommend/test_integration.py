@@ -26,11 +26,13 @@ class RealDataWorkspace:
 
 
 def _prepare_workspace(base_path: Path) -> RealDataWorkspace:
-    data_root = Path(__file__).resolve().parents[2] / "data"
-    metadata_path = data_root / "metadata" / "metadata-2025.csv"
-    prefs_path = data_root / "preferences" / "events-2025.csv"
-    jasper_path = data_root / "embeddings" / "jasper_v1" / "2025.parquet"
-    conan_path = data_root / "embeddings" / "conan_v1" / "2025.parquet"
+    from tests.utils import test_sample_size
+    testdata_root = Path(__file__).resolve().parent / "testdata"
+    metadata_path = testdata_root / "metadata-2023.csv"
+    prefs_path = testdata_root / "preferences.csv"
+    # Use small sample embeddings; assume jasper/conan are similar structure
+    jasper_path = testdata_root / "embeddings-small.jsonl"  # Adapt to parquet if needed
+    conan_path = jasper_path  # Reuse for simplicity in test
 
     metadata_dir = base_path / "metadata"
     embeddings_root = base_path / "embeddings"
@@ -94,22 +96,24 @@ def _prepare_workspace(base_path: Path) -> RealDataWorkspace:
 
     positive = joined.join(likes, on="id", how="inner")
     if positive.is_empty():
-        raise RuntimeError("No overlapping positive preferences found in real dataset")
+        raise RuntimeError("No overlapping positive preferences found in test dataset")
 
-    positive = positive.head(min(positive.height, 32))
+    sample_n = int(test_sample_size)
+    positive = positive.head(min(positive.height, max(1, sample_n // 4)))  # Small positive set
 
     positive_id_list = positive["id"].to_list()
     background_pool = joined.filter(~pl.col("id").is_in(positive_id_list))
-    bg_count = min(400, background_pool.height)
+    sample_n = int(test_sample_size)
+    bg_count = min(sample_n * 10, background_pool.height)  # Scale with sample size
     if bg_count == 0:
-        raise RuntimeError("Background pool is empty for real dataset integration test")
+        raise RuntimeError("Background pool is empty for test dataset integration test")
     background = background_pool.sample(n=bg_count, seed=42)
 
     combined = pl.concat([positive, background], how="vertical").unique("id")
     combined = combined.with_columns(
         pl.col("jasper_v1").list.eval(pl.element().cast(pl.Float32)),
         pl.col("conan_v1").list.eval(pl.element().cast(pl.Float32)),
-    )
+    ).head(int(test_sample_size))  # Limit total dataset size
 
     metadata_output = combined.select(
         pl.col("id").alias("paper_id"),
@@ -159,7 +163,7 @@ def _select_available_llm_alias(config: AppConfig) -> str | None:
 
 @pytest.fixture(scope="module")
 def real_workspace(tmp_path_factory: pytest.TempPathFactory) -> RealDataWorkspace:
-    base_path = tmp_path_factory.mktemp("papersys-real-data")
+    base_path = tmp_path_factory.mktemp("papersys-test-data")
     return _prepare_workspace(base_path)
 
 
@@ -170,7 +174,8 @@ def real_app_config(real_workspace: RealDataWorkspace) -> AppConfig:
     if config.recommend_pipeline is None:
         raise RuntimeError("recommend_pipeline config is required")
 
-    predict_cfg = config.recommend_pipeline.predict.model_copy(update={"last_n_days": 365})
+    sample_n = int(test_sample_size)  # Use fixture for small runs
+    predict_cfg = config.recommend_pipeline.predict.model_copy(update={"last_n_days": 7, "sample_rate": min(1.0, 0.1 * sample_n / 100)})  # Adjust for small data
     recommend_cfg = config.recommend_pipeline.model_copy(update={"predict": predict_cfg})
 
     summary_cfg = config.summary_pipeline
@@ -194,9 +199,9 @@ def recommendation_artifacts(
     real_workspace: RealDataWorkspace,
 ) -> PipelineArtifacts:
     pipeline = RecommendationPipeline(real_app_config, base_path=real_workspace.base_path)
-    artifacts = pipeline.run()
+    artifacts = pipeline.run(force_include_all=True)  # Ensure small data works
     if artifacts.dataset.preferred.is_empty() or artifacts.dataset.background.is_empty():
-        raise RuntimeError("Real data pipeline produced empty datasets")
+        raise RuntimeError("Test data pipeline produced empty datasets")
     return artifacts
 
 

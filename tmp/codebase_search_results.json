@@ -1,0 +1,256 @@
+{
+  "searches": [
+    {
+      "query": "tests involving network requests, API calls, or external dependencies like requests, httpx, urllib, aiohttp, openai, gemini, HF_TOKEN, GEMINI_API_KEY, arxiv, download_pdf, pdf, curl, wget",
+      "path": "tests",
+      "results": [
+        {
+          "file_path": "tests/feedback/test_feedback_service.py",
+          "score": 0.67430896,
+          "lines": "74-75",
+          "code_chunk": "with pytest.raises(requests.RequestException):\n            service.fetch_giscus_feedback()"
+        },
+        {
+          "file_path": "tests/ingestion/test_client.py",
+          "score": 0.6660548,
+          "lines": "107-107",
+          "code_chunk": "@patch(\"papersys.ingestion.client.requests.Session.get\")"
+        },
+        {
+          "file_path": "tests/summary/test_fetcher.py",
+          "score": 0.6609293,
+          "lines": "54-57",
+          "code_chunk": "def _fake_http_get(url: str, *, timeout: int = 30) -> bytes:  # noqa: ARG001\n    if url.endswith(\".pdf\"):\n        return b\"%PDF-stub\"\n    return b\"TAR-STUB\""
+        },
+        {
+          "file_path": "tests/recommend/test_integration.py",
+          "score": 0.6599544,
+          "lines": "233-236",
+          "code_chunk": "try:\n        _ = target_llm.api_key_secret\n    except EnvironmentError:\n        pytest.skip(f\"Environment variable for LLM '{llm_alias}' is not set\")"
+        },
+        {
+          "file_path": "tests/ingestion/test_ingestion_service.py",
+          "score": 0.6553328,
+          "lines": "190-190",
+          "code_chunk": "@patch(\"papersys.ingestion.service.ArxivOAIClient.list_records\")"
+        },
+        {
+          "file_path": "tests/feedback/test_feedback_service.py",
+          "score": 0.65261203,
+          "lines": "70-75",
+          "code_chunk": "with patch(\"papersys.feedback.service.requests.post\") as mock_post:\n        mock_post.return_value.status_code = 401\n        mock_post.return_value.text = \"Unauthorized\"\n\n        with pytest.raises(requests.RequestException):\n            service.fetch_giscus_feedback()"
+        },
+        {
+          "file_path": "tests/ingestion/test_client.py",
+          "score": 0.6519873,
+          "lines": "68-68",
+          "code_chunk": "assert result.license == \"http://arxiv.org/licenses/nonexclusive-distrib/1.0/\""
+        },
+        {
+          "file_path": "tests/ingestion/test_client.py",
+          "score": 0.6517863,
+          "lines": "12-15",
+          "code_chunk": "@pytest.fixture\ndef oai_client() -> ArxivOAIClient:\n    \"\"\"Create OAI client for testing.\"\"\"\n    return ArxivOAIClient(max_retries=1, retry_delay=0.1)"
+        },
+        {
+          "file_path": "tests/ingestion/test_client.py",
+          "score": 0.6515944,
+          "lines": "13-15",
+          "code_chunk": "def oai_client() -> ArxivOAIClient:\n    \"\"\"Create OAI client for testing.\"\"\"\n    return ArxivOAIClient(max_retries=1, retry_delay=0.1)"
+        },
+        {
+          "file_path": "tests/config/test_load_config.py",
+          "score": 0.6483223,
+          "lines": "63-63",
+          "code_chunk": "assert cfg.summary_pipeline.pdf.fetch_latex_source is False"
+        },
+        {
+          "file_path": "tests/summary/test_fetcher.py",
+          "score": 0.64581025,
+          "lines": "8-12",
+          "code_chunk": "from papersys.summary.fetcher import (\n    ArxivContentFetcher,\n    ContentUnavailableError,\n    FetchResult,\n)"
+        },
+        {
+          "file_path": "tests/recommend/test_integration.py",
+          "score": 0.644072,
+          "lines": "230-231",
+          "code_chunk": "if target_llm is None:\n        pytest.skip(f\"LLM alias '{llm_alias}' not configured\")"
+        },
+        {
+          "file_path": "tests/config/test_load_config.py",
+          "score": 0.6435386,
+          "lines": "64-64",
+          "code_chunk": "assert cfg.summary_pipeline.llm.model == \"gemini-2.5-flash\""
+        },
+        {
+          "file_path": "tests/ingestion/test_ingestion_service.py",
+          "score": 0.63805306,
+          "lines": "196-227",
+          "code_chunk": "mock_list_records.return_value = [\n        ArxivRecord(\n            paper_id=\"2301.00001\",\n            title=\"Paper 1\",\n            abstract=\"Abstract 1\",\n            categories=[\"cs.AI\"],\n            primary_category=\"cs.AI\",\n            authors=[\"John Doe\"],\n            published_at=\"2023-01-01\",\n            updated_at=\"2023-01-01\",\n        ),\n        ArxivRecord(\n            paper_id=\"2301.00002\",\n            title=\"Paper 2\",\n            abstract=\"Abstract 2\",\n            categories=[\"cs.CL\"],\n            primary_category=\"cs.CL\",\n            authors=[\"Jane Smith\"],\n            published_at=\"2023-01-02\",\n            updated_at=\"2023-01-02\",\n        ),\n        ArxivRecord(\n            paper_id=\"2301.00003\",\n            title=\"Paper 3\",\n            abstract=\"Abstract 3\",\n            categories=[\"cs.AI\"],\n            primary_category=\"cs.AI\",\n            authors=[\"Bob Johnson\"],\n            published_at=\"2023-01-03\",\n            updated_at=\"2023-01-03\",\n        ),\n    ]"
+        },
+        {
+          "file_path": "tests/embedding/test_embedding_service.py",
+          "score": 0.63784814,
+          "lines": "197-201",
+          "code_chunk": "(\n    test_service: EmbeddingService,\n    test_csv: Path,\n    test_embedding_config: EmbeddingConfig,\n)"
+        },
+        {
+          "file_path": "tests/embedding/test_embedding_service.py",
+          "score": 0.63784814,
+          "lines": "126-130",
+          "code_chunk": "(\n    test_service: EmbeddingService,\n    test_csv: Path,\n    test_embedding_config: EmbeddingConfig,\n)"
+        },
+        {
+          "file_path": "tests/summary/test_generator_detection.py",
+          "score": 0.6367012,
+          "lines": "148-148",
+          "code_chunk": "(monkeypatch: pytest.MonkeyPatch, llm_config: LLMConfig)"
+        },
+        {
+          "file_path": "tests/summary/test_generator_detection.py",
+          "score": 0.6367012,
+          "lines": "111-111",
+          "code_chunk": "(monkeypatch: pytest.MonkeyPatch, llm_config: LLMConfig)"
+        },
+        {
+          "file_path": "tests/summary/test_generator_detection.py",
+          "score": 0.6367012,
+          "lines": "74-74",
+          "code_chunk": "(monkeypatch: pytest.MonkeyPatch, llm_config: LLMConfig)"
+        },
+        {
+          "file_path": "tests/summary/test_generator_detection.py",
+          "score": 0.6367012,
+          "lines": "34-34",
+          "code_chunk": "(monkeypatch: pytest.MonkeyPatch, llm_config: LLMConfig)"
+        }
+      ]
+    },
+    {
+      "query": "tests that write to data/ directory, use Path(\"data\"), open files for writing, .write(, or marked as integration or slow: pytest.mark.integration, pytest.mark.slow",
+      "path": "tests",
+      "results": [
+        {
+          "file_path": "tests/ingestion/test_ingestion_service.py",
+          "score": 0.68071616,
+          "lines": "161-161",
+          "code_chunk": "year_path = test_service.output_dir / \"metadata-2023.csv\""
+        },
+        {
+          "file_path": "tests/ingestion/test_ingestion_service.py",
+          "score": 0.68071616,
+          "lines": "234-234",
+          "code_chunk": "year_path = test_service.output_dir / \"metadata-2023.csv\""
+        },
+        {
+          "file_path": "tests/ingestion/test_ingestion_service.py",
+          "score": 0.68071616,
+          "lines": "109-109",
+          "code_chunk": "year_path = test_service.output_dir / \"metadata-2023.csv\""
+        },
+        {
+          "file_path": "tests/integration/test_full_pipeline.py",
+          "score": 0.67700034,
+          "lines": "151-172",
+          "code_chunk": "for alias in (\"jasper_v1\", \"conan_v1\"):\n        alias_dir = embeddings_root / alias\n        alias_dir.mkdir(parents=True, exist_ok=True)\n        vectors = [\n            {\n                \"paper_id\": row[\"id\"],\n                \"embedding\": [float(value) for value in row[alias]],\n                \"generated_at\": \"2025-09-01T00:00:00+00:00\",\n                \"model_dim\": len(row[alias]),\n                \"source\": \"integration-test\",\n            }\n            for row in rows\n        ]\n        pl.DataFrame(\n            {\n                \"paper_id\": [item[\"paper_id\"] for item in vectors],\n                \"embedding\": [item[\"embedding\"] for item in vectors],\n                \"generated_at\": [item[\"generated_at\"] for item in vectors],\n                \"model_dim\": [item[\"model_dim\"] for item in vectors],\n                \"source\": [item[\"source\"] for item in vectors],\n            }\n        ).write_parquet(alias_dir / \"2025.parquet\")"
+        },
+        {
+          "file_path": "tests/recommend/test_integration.py",
+          "score": 0.67365974,
+          "lines": "29-29",
+          "code_chunk": "data_root = Path(__file__).resolve().parents[2] / \"data\""
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "340-344",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "222-226",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "416-420",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "77-81",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "174-178",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "288-292",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "130-134",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.67335695,
+          "lines": "39-43",
+          "code_chunk": "(\n    monkeypatch: pytest.MonkeyPatch,\n    tmp_path: Path,\n    config_path: Path,\n)"
+        },
+        {
+          "file_path": "tests/recommend/test_integration.py",
+          "score": 0.67063355,
+          "lines": "269-273",
+          "code_chunk": "for artifact in artifacts:\n        assert artifact.markdown_path.exists()\n        assert artifact.markdown_path.stat().st_size > 0\n        assert artifact.pdf_path.exists()\n        assert artifact.document.sections"
+        },
+        {
+          "file_path": "tests/recommend/test_integration.py",
+          "score": 0.6666736,
+          "lines": "123-134",
+          "code_chunk": "for alias in (\"jasper_v1\", \"conan_v1\"):\n        alias_dir = embeddings_root / alias\n        alias_dir.mkdir(parents=True, exist_ok=True)\n        embedding_output = combined.select(\n            pl.col(\"id\").alias(\"paper_id\"),\n            pl.col(alias).alias(\"embedding\"),\n        ).with_columns(\n            pl.lit(\"2025-09-01T00:00:00+00:00\").alias(\"generated_at\"),\n            pl.col(\"embedding\").list.len().alias(\"model_dim\"),\n            pl.lit(\"integration-test\").alias(\"source\"),\n        )\n        embedding_output.write_parquet(alias_dir / \"2025.parquet\")"
+        },
+        {
+          "file_path": "tests/embedding/test_embedding_service.py",
+          "score": 0.6613859,
+          "lines": "139-139",
+          "code_chunk": "backlog_path = (test_service.output_dir / model_config.alias / \"backlog.parquet\")"
+        },
+        {
+          "file_path": "tests/recommend/test_pipeline.py",
+          "score": 0.6611056,
+          "lines": "137-141",
+          "code_chunk": "def seed_test_data(data_root: Path) -> None:\n    metadata_dir = data_root / \"metadata\"\n    embeddings_root = data_root / \"embeddings\"\n    seed_metadata(metadata_dir)\n    seed_embeddings(embeddings_root)"
+        },
+        {
+          "file_path": "tests/recommend/test_pipeline.py",
+          "score": 0.6597373,
+          "lines": "353-364",
+          "code_chunk": "for alias in {key for paper in DUMMY_PAPERS for key in paper[\"embeddings\"].keys()}:\n        alias_dir = embeddings_root / alias\n        alias_dir.mkdir(parents=True, exist_ok=True)\n        pl.DataFrame(\n            {\n                \"paper_id\": [\"p_nan\"],\n                \"embedding\": [[float(\"nan\"), 0.0]],\n                \"generated_at\": [\"2025-09-01T00:00:00+00:00\"],\n                \"model_dim\": [2],\n                \"source\": [\"unit-test\"],\n            }\n        ).write_parquet(alias_dir / \"extra.parquet\")"
+        },
+        {
+          "file_path": "tests/cli/test_cli_commands.py",
+          "score": 0.6592405,
+          "lines": "474-474",
+          "code_chunk": "expected_output = (config.data_root / custom_output).resolve()"
+        },
+        {
+          "file_path": "tests/recommend/test_integration.py",
+          "score": 0.6586909,
+          "lines": "265-266",
+          "code_chunk": "if not artifacts:\n        pytest.skip(\"Summary pipeline did not produce outputs for available candidates\")"
+        }
+      ]
+    }
+  ]
+}

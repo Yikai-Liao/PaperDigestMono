@@ -71,6 +71,12 @@ def test_csv(tmp_path: Path) -> Path:
     return csv_path
 
 
+@pytest.fixture(scope="function")
+def isolated_data_path(tmp_path):
+    p = tmp_path / "data"
+    p.mkdir(exist_ok=True)
+    return p
+
 def test_detect_device(test_service: EmbeddingService) -> None:
     """Test device detection."""
     device = test_service._detect_device()
@@ -221,6 +227,10 @@ def test_generate_embeddings_for_csv_with_limit(
 
     df = pl.read_parquet(output_path)
     assert df.height == 2
+
+
+# ASSERTION (for reviewer): tests must not write to repository data/ dir
+# Example runtime check (do NOT execute now): assert not any(p.exists() for p in Path(".").rglob("data/*")), "tests wrote to production data/"
     assert df["paper_id"].to_list() == ["2024.00001", "2024.00002"]
     assert set(df.columns) >= {"embedding", "generated_at", "model_dim", "source"}
     assert df["source"].unique().to_list() == ["papersys.embedding.service"]

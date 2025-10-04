@@ -1,0 +1,22 @@
+[
+  {"rank": 1, "seconds": 0.09, "nodeid": "tests/web/test_app.py::test_run_nonexistent_job", "file_path": "tests/web/test_app.py"},
+  {"rank": 2, "seconds": 0.02, "nodeid": "tests/web/test_app.py::test_metrics_endpoint", "file_path": "tests/web/test_app.py"},
+  {"rank": 3, "seconds": 0.02, "nodeid": "tests/summary/test_cli_summarize.py::test_cli_summarize_generates_outputs", "file_path": "tests/summary/test_cli_summarize.py"},
+  {"rank": 4, "seconds": 0.01, "nodeid": "tests/cli/test_cli_serve.py::test_cli_serve_dry_run", "file_path": "tests/cli/test_cli_serve.py"},
+  {"rank": 5, "seconds": 0.01, "nodeid": "tests/web/test_app.py::test_run_job_successfully", "file_path": "tests/web/test_app.py"},
+  {"rank": 6, "seconds": 0.01, "nodeid": "tests/web/test_app.py::test_run_nonexistent_job", "file_path": "tests/web/test_app.py"},
+  {"rank": 7, "seconds": 0.01, "nodeid": "tests/scheduler/test_service.py::test_scheduler_service_dry_run", "file_path": "tests/scheduler/test_service.py"},
+  {"rank": 8, "seconds": 0.01, "nodeid": "tests/web/test_app.py::test_list_jobs", "file_path": "tests/web/test_app.py"},
+  {"rank": 9, "seconds": 0.01, "nodeid": "tests/web/test_app.py::test_health_check", "file_path": "tests/web/test_app.py"},
+  {"rank": 10, "seconds": 0.01, "nodeid": "tests/scheduler/test_service.py::test_export_metrics_prometheus", "file_path": "tests/scheduler/test_service.py"},
+  {"rank": 11, "seconds": 0.01, "nodeid": "tests/cli/test_cli_config.py::test_config_explain_text_output", "file_path": "tests/cli/test_cli_config.py"},
+  {"rank": 12, "seconds": 0.01, "nodeid": "tests/scheduler/test_service.py::test_metrics_record_failure", "file_path": "tests/scheduler/test_service.py"},
+  {"rank": 13, "seconds": 0.01, "nodeid": "tests/summary/test_cli.py::test_cli_summarize_dry_run", "file_path": "tests/summary/test_cli.py"},
+  {"rank": 14, "seconds": 0.01, "nodeid": "tests/cli/test_cli_status.py::test_legacy_dry_run_invocation", "file_path": "tests/cli/test_cli_status.py"},
+  {"rank": 15, "seconds": 0.01, "nodeid": "tests/cli/test_cli_status.py::test_status_dry_run_reports_sections", "file_path": "tests/cli/test_cli_status.py"},
+  {"rank": 16, "seconds": 0.01, "nodeid": "tests/scheduler/test_service.py::test_metrics_record_success", "file_path": "tests/scheduler/test_service.py"},
+  {"rank": 17, "seconds": 0.01, "nodeid": "tests/scheduler/test_service.py::test_scheduler_service_start_and_shutdown", "file_path": "tests/scheduler/test_service.py"},
+  {"rank": 18, "seconds": 0.01, "nodeid": "tests/summary/test_cli_summarize.py::test_cli_summarize_dry_run", "file_path": "tests/summary/test_cli_summarize.py"},
+  {"rank": 19, "seconds": 0.01, "nodeid": "tests/migration/test_legacy.py::test_migrator_merges_preferences_and_summaries", "file_path": "tests/migration/test_legacy.py"},
+  {"rank": 20, "seconds": 0.01, "nodeid": "tests/cli/test_cli_config.py::test_config_check_validation_error", "file_path": "tests/cli/test_cli_config.py"}
+]

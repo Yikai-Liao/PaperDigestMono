@@ -1,0 +1,373 @@
+[
+  {
+    "path": "tests/ingestion/test_client.py",
+    "type": "test",
+    "matches": [
+      {
+        "keyword": "requests",
+        "line": 107,
+        "snippet": "@patch(\"papersys.ingestion.client.requests.Session.get\")"
+      },
+      {
+        "keyword": "httpx",
+        "line": 107,
+        "snippet": "@patch(\"papersys.ingestion.client.requests.Session.get\")"
+      },
+      {
+        "keyword": "urllib3",
+        "line": 107,
+        "snippet": "@patch(\"papersys.ingestion.client.requests.Session.get\")"
+      }
+    ],
+    "risk_tags": ["network"],
+    "recommendation": "Mock network calls in tests; use pytest.mark.integration if real API needed"
+  },
+  {
+    "path": "papersys/summary/fetcher.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "urllib",
+        "line": 27,
+        "snippet": "with urllib.request.urlopen(request, timeout=timeout) as response:  # type: ignore[no-untyped-call]\n        return response.read()"
+      },
+      {
+        "keyword": "urllib3",
+        "line": 27,
+        "snippet": "with urllib.request.urlopen(request, timeout=timeout) as response:  # type: ignore[no-untyped-call]\n        return response.read()"
+      }
+    ],
+    "risk_tags": ["network"],
+    "recommendation": "Cache HTTP responses; add timeout and retry logic"
+  },
+  {
+    "path": "tests/feedback/test_feedback_service.py",
+    "type": "test",
+    "matches": [
+      {
+        "keyword": "requests",
+        "line": 74,
+        "snippet": "with pytest.raises(requests.RequestException):\n            service.fetch_giscus_feedback()"
+      }
+    ],
+    "risk_tags": ["network"],
+    "recommendation": "Use mocked responses for exception testing"
+  },
+  {
+    "path": "papersys/ingestion/client.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "requests",
+        "line": 52,
+        "snippet": "self.session = requests.Session()\n        self.session.headers.update({\"User-Agent\": \"PaperDigestMono/0.1\"})"
+      }
+    ],
+    "risk_tags": ["network"],
+    "recommendation": "Use session with connection pooling; consider async for high throughput"
+  },
+  {
+    "path": "papersys/embedding/service.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "socket",
+        "line": 122,
+        "snippet": "try:\n            conn.send(result)\n        finally:\n            conn.close()"
+      },
+      {
+        "keyword": "transformers",
+        "line": 17,
+        "snippet": "from sentence_transformers import SentenceTransformer"
+      }
+    ],
+    "risk_tags": ["network", "heavy_io"],
+    "recommendation": "Ensure socket connections are secure; cache models locally"
+  },
+  {
+    "path": "tests/embedding/test_embedding_service.py",
+    "type": "test",
+    "matches": [
+      {
+        "keyword": "transformers",
+        "line": 110,
+        "snippet": "from sentence_transformers import SentenceTransformer"
+      },
+      {
+        "keyword": "transformers",
+        "line": 85,
+        "snippet": "from sentence_transformers import SentenceTransformer"
+      }
+    ],
+    "risk_tags": ["heavy_io"],
+    "recommendation": "Mock model loading in tests to avoid downloads"
+  },
+  {
+    "path": "reference/PaperDigest/script/summarize.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "openai",
+        "line": 96,
+        "snippet": "client = OpenAI(\n        api_key=api_key,\n        base_url=base_url,\n    )"
+      },
+      {
+        "keyword": "gemini",
+        "line": 190,
+        "snippet": "handler = GeminiHandler(api_key=api_key, model=model)"
+      }
+    ],
+    "risk_tags": ["uses_key", "network"],
+    "recommendation": "Use env vars for keys; add rate limiting"
+  },
+  {
+    "path": "scripts/test_real_gemini_api.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "GEMINI_API_KEY",
+        "line": 24,
+        "snippet": "logger.info(\"GEMINI_API_KEY found: {}...\", api_key[:10])"
+      },
+      {
+        "keyword": "GEMINI_API_KEY",
+        "line": 20,
+        "snippet": "if not api_key:\n        logger.error(\"GEMINI_API_KEY environment variable not set\")\n        sys.exit(1)"
+      }
+    ],
+    "risk_tags": ["uses_key"],
+    "recommendation": "Mark as integration test; use test keys"
+  },
+  {
+    "path": "config/example.toml",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "GEMINI_API_KEY",
+        "line": 168,
+        "snippet": "api_key = \"env:GEMINI_API_KEY\""
+      }
+    ],
+    "risk_tags": ["uses_key"],
+    "recommendation": "Document secure key handling"
+  },
+  {
+    "path": "reference/ArxivEmbedding/script/merge.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "huggingface",
+        "line": 3,
+        "snippet": "from huggingface_hub import HfApi, hf_hub_download, upload_file"
+      },
+      {
+        "keyword": "hf_hub",
+        "line": 3,
+        "snippet": "from huggingface_hub import HfApi, hf_hub_download, upload_file"
+      },
+      {
+        "keyword": "huggingface_hub",
+        "line": 3,
+        "snippet": "from huggingface_hub import HfApi, hf_hub_download, upload_file"
+      }
+    ],
+    "risk_tags": ["network", "uses_key"],
+    "recommendation": "Use HF_TOKEN env; cache downloads"
+  },
+  {
+    "path": "papersys/config/embedding.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "HF_TOKEN",
+        "line": 67,
+        "snippet": "hf_token: str | None = Field(None, description=\"HF token (supports 'env:VAR_NAME' format)\")"
+      }
+    ],
+    "risk_tags": ["uses_key"],
+    "recommendation": "Validate token format"
+  },
+  {
+    "path": "papersys/summary/conversion.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "latex2json",
+        "line": 391,
+        "snippet": "\"\"\"Run latex2json and convert the output to Markdown.\"\"\""
+      },
+      {
+        "keyword": "subprocess.run",
+        "line": 496,
+        "snippet": "result = subprocess.run(\n                    command,"
+      },
+      {
+        "keyword": "open",
+        "line": 495,
+        "snippet": "try:\n                result = subprocess.run("
+      }
+    ],
+    "risk_tags": ["heavy_io", "writes_data"],
+    "recommendation": "Use tmp/ for intermediate files; mock subprocess in tests"
+  },
+  {
+    "path": "scripts/fetch_feedback.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "Path(\"data\")",
+        "line": 29,
+        "snippet": "out_path = Path(\"data/feedback\") / f\"{args.year}_discussions.csv\""
+      }
+    ],
+    "risk_tags": ["writes_data"],
+    "recommendation": "Use tmp/ for non-production writes; add --dry-run flag"
+  },
+  {
+    "path": "tests/feedback/test_feedback_service.py",
+    "type": "test",
+    "matches": [
+      {
+        "keyword": "Path(\"data\")",
+        "line": 123,
+        "snippet": "assert config.content_dir == Path(\"data/publishing/content\")\n    assert config.template_path == Path(\"config/template.j2\")"
+      }
+    ],
+    "risk_tags": ["writes_data"],
+    "recommendation": "Use tmp_path fixture for test paths"
+  },
+  {
+    "path": "papersys/feedback/service.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "Path(\"data\")",
+        "line": 19,
+        "snippet": "preferences_dir: Path = Path(\"data/preferences\")"
+      },
+      {
+        "keyword": "Path(\"data\")",
+        "line": 173,
+        "snippet": "df = service.fetch_giscus_feedback(Path(\"data/feedback/discussions.csv\"))"
+      }
+    ],
+    "risk_tags": ["writes_data", "network"],
+    "recommendation": "Configurable paths; use tmp/ in dev"
+  },
+  {
+    "path": "papersys/summary/renderer.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "open",
+        "line": 81,
+        "snippet": "with open(output_path, \"w\", encoding=\"utf-8\") as f:\n            f.write(rendered)"
+      }
+    ],
+    "risk_tags": ["writes_data"],
+    "recommendation": "Ensure output_dir is configurable and uses tmp/ for testing"
+  },
+  {
+    "path": "papersys/summary/pipeline.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "open",
+        "line": 289,
+        "snippet": "with jsonl_path.open(\"a\", encoding=\"utf-8\") as fp:\n            for artifact in artifacts:"
+      }
+    ],
+    "risk_tags": ["writes_data"],
+    "recommendation": "Use tmp/ for pipeline outputs in tests"
+  },
+  {
+    "path": "papersys/recommend/data.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "open",
+        "line": 148,
+        "snippet": "with csv_path.open(\"r\", encoding=\"utf-8\") as fh:\n            header_line = fh.readline().strip()"
+      }
+    ],
+    "risk_tags": ["writes_data"],
+    "recommendation": "Read from tmp/ in unit tests"
+  },
+  {
+    "path": "papersys/migration/legacy.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "open",
+        "line": 565,
+        "snippet": "with path.open(\"w\", encoding=\"utf-8\") as fh:\n            for row in rows:"
+      }
+    ],
+    "risk_tags": ["writes_data"],
+    "recommendation": "Dry-run mode for migrations; write to tmp/"
+  },
+  {
+    "path": "papersys/config/publishing.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "Path(\"data\")",
+        "line": 22,
+        "snippet": "content_dir: Path = Path(\"data/publishing/content\")\n    template_path: Path = Path(\"config/template.j2\")\n    preferences_dir: Path = Path(\"data/preferences\")"
+      }
+    ],
+    "risk_tags": ["writes_data"],
+    "recommendation": "Make paths configurable via env"
+  },
+  {
+    "path": "papersys/config/base.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "open",
+        "line": 35,
+        "snippet": "with path.open(\"rb\") as fh:\n        data = tomllib.load(fh)"
+      }
+    ],
+    "risk_tags": [],
+    "recommendation": "N/A - config read is safe"
+  },
+  {
+    "path": "reference/PaperDigestAction/src/summarize.py",
+    "type": "code",
+    "matches": [
+      {
+        "keyword": "open",
+        "line": 158,
+        "snippet": "with open(REPO_ROOT / \"summary_example.json\", \"r\", encoding=\"utf-8\") as f:\n        example = f.read()"
+      },
+      {
+        "keyword": "open",
+        "line": 246,
+        "snippet": "with open(output_path / f\"{paper_id}.json\", \"w\", encoding=\"utf-8\") as f:\n    json.dump(summary_dict, f, ensure_ascii=False, indent=4)"
+      },
+      {
+        "keyword": "open",
+        "line": 486,
+        "snippet": "with open(latex_tar_gz_file, 'wb') as f:\n    f.write(response.content)"
+      },
+      {
+        "keyword": "open",
+        "line": 504,
+        "snippet": "with open(json_file, 'w', encoding='utf-8') as f:\n    f.write(json_output_str)"
+      },
+      {
+        "keyword": "open",
+        "line": 520,
+        "snippet": "with open(json_file, 'r', encoding='utf-8') as f:\n    loaded_json_str = f.read()"
+      },
+      {
+        "keyword": "open",
+        "line": 531,
+        "snippet": "with open(markdown_file, 'w', encoding='utf-8') as f:\n    f.write(md_str)"
+      }
+    ],
+    "risk_tags": ["writes_data", "heavy_io"],
+    "recommendation": "Use tmp/ for file operations in scripts"
+  }
+]

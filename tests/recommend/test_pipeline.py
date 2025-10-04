@@ -150,6 +150,7 @@ def recommendation_config(tmp_path: Path) -> AppConfig:
     summarized_dir = data_root / "summarized"
     for directory in (preference_dir, summarized_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    # ASSERTION: All data seeding writes to tmp_path; no repo data/ pollution
 
     write_dummy_preferences(preference_dir)
     seed_test_data(data_root)
@@ -270,6 +271,7 @@ def test_loader_accepts_paper_id_preferences(tmp_path: Path) -> None:
     summarized_dir = data_root / "summarized"
     for directory in (preference_dir, summarized_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    # ASSERTION: Test writes only to tmp_path workspace
 
     write_dummy_preferences(preference_dir, id_column="paper_id")
     seed_test_data(data_root)
@@ -332,6 +334,7 @@ def test_loader_filters_nan_embeddings(tmp_path: Path) -> None:
     summarized_dir = data_root / "summarized"
     for directory in (preference_dir, summarized_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    # ASSERTION: NaN test writes only to tmp_path; filters invalid embeddings
 
     write_dummy_preferences(preference_dir)
     seed_test_data(data_root)

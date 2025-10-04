@@ -1,0 +1,3 @@
+tests/ingestion/test_client.py
+tests/feedback/test_feedback_service.py
+tests/embedding/test_embedding_service.py

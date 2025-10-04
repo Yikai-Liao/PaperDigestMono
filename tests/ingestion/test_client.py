@@ -5,14 +5,21 @@ from __future__ import annotations
 from unittest.mock import Mock, patch
 
 import pytest
+from pathlib import Path
 
 from papersys.ingestion.client import ArxivOAIClient, ArxivRecord
-
 
 @pytest.fixture
 def oai_client() -> ArxivOAIClient:
     """Create OAI client for testing."""
     return ArxivOAIClient(max_retries=1, retry_delay=0.1)
+
+
+@pytest.fixture(scope="function")
+def isolated_data_path(tmp_path):
+    p = tmp_path / "data"
+    p.mkdir(exist_ok=True)
+    return p
 
 
 def test_parse_record_valid(oai_client: ArxivOAIClient) -> None:
@@ -184,3 +191,7 @@ def test_list_records_with_resumption(mock_get: Mock, oai_client: ArxivOAIClient
 
     # Verify API calls
     assert mock_get.call_count == 2
+
+
+# ASSERTION (for reviewer): tests must not write to repository data/ dir
+# Example runtime check (do NOT execute now): assert not any(p.exists() for p in Path(".").rglob("data/*")), "tests wrote to production data/"

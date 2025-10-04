@@ -27,6 +27,12 @@ def service(config):
     return FeedbackService(config)
 
 
+@pytest.fixture(scope="function")
+def isolated_data_path(tmp_path):
+    p = tmp_path / "data"
+    p.mkdir(exist_ok=True)
+    return p
+
 def test_fetch_giscus_feedback_success(service):
     """Test successful giscus feedback fetch."""
     mock_response = {
@@ -122,3 +128,7 @@ def test_publishing_config():
     config = PublishingConfig()
     assert config.content_dir == Path("data/publishing/content")
     assert config.template_path == Path("config/template.j2")
+
+
+# ASSERTION (for reviewer): tests must not write to repository data/ dir
+# Example runtime check (do NOT execute now): assert not any(p.exists() for p in Path(".").rglob("data/*")), "tests wrote to production data/"

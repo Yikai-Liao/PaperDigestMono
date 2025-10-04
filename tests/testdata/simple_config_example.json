@@ -1,0 +1,9 @@
+{
+  "data_root": "tests/testdata",
+  "metadata_file": "metadata-2023.csv",
+  "embeddings_file": "embeddings-small.jsonl",
+  "preferences_file": "preferences.csv",
+  "summaries_file": "summaries_sample.jsonl",
+  "predictions_file": "predictions_sample.csv",
+  "zotero_file": "sample_zotero.csv"
+}

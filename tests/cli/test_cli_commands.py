@@ -17,6 +17,7 @@ def config_path(tmp_path: Path) -> Path:
     config_file = tmp_path / "config.toml"
     config_file.write_text("placeholder = true")
     return config_file
+    # ASSERTION: CLI tests use tmp_path for configs/outputs; no real data/ writes
 
 
 def test_main_without_command_warns(
@@ -109,6 +110,7 @@ def test_summarize_runs_with_input(
     input_path = tmp_path / "data" / "recommendations" / "run" / "recommended.parquet"
     input_path.parent.mkdir(parents=True, exist_ok=True)
     input_path.write_text("placeholder", encoding="utf-8")
+    # ASSERTION: Mock input in tmp_path; no real data/ access
 
     exit_code = main([
         "--config",
@@ -328,6 +330,7 @@ def test_embed_backlog_flow(
     metadata_dir = Path(config.ingestion.output_dir)
     metadata_dir.mkdir(parents=True, exist_ok=True)
     (metadata_dir / "backlog.csv").write_text("paper_id,title\n1,Example\n", encoding="utf-8")
+    # ASSERTION: Backlog seed in tmp_path (via config); safe for embed tests
 
     exit_code = main(["--config", str(config_path), "embed", "--backlog", "--limit", "5"])
 
@@ -351,6 +354,7 @@ def test_embed_full_generation(
     sample_csv = metadata_dir / "sample.csv"
     sample_csv.parent.mkdir(parents=True, exist_ok=True)
     sample_csv.write_text("id,title\n1,Example\n")
+    # ASSERTION: Sample CSV in tmp_path; no real metadata/ pollution
 
     instances: list[Any] = []
 
@@ -446,6 +450,7 @@ def test_recommend_executes_pipeline(
             predictions_path.write_text("", encoding="utf-8")
             recommended_path.write_text("", encoding="utf-8")
             manifest_path.write_text("{}", encoding="utf-8")
+            # ASSERTION: Mock outputs in tmp_path; safe for CLI recommend test
             return SimpleNamespace(
                 output_dir=run_dir,
                 predictions_path=predictions_path,

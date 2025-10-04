@@ -52,6 +52,8 @@ def test_config() -> IngestionConfig:
 @pytest.fixture
 def test_service(test_config: IngestionConfig, tmp_path: Path) -> IngestionService:
     """Instantiate the ingestion service with a temporary base path."""
+    # ASSERTION: All writes are to tmp_path; no access to repo data/
+    assert tmp_path.is_dir()
     return IngestionService(test_config, base_path=tmp_path)
 
 
@@ -179,6 +181,8 @@ def test_deduplicate_csv_files(test_service: IngestionService) -> None:
     year_path.parent.mkdir(parents=True, exist_ok=True)
     frame.write_csv(year_path)
 
+    # ASSERTION: Dedup operates only on test output_dir (tmp_path)
+    assert test_service.output_dir == tmp_path / "metadata"
     removed = test_service.deduplicate_csv_files()
     assert removed == 1
 
