@@ -14,6 +14,9 @@ from loguru import logger
 
 from papersys.backup import BackupService
 from papersys.config import AppConfig, SchedulerJobConfig
+from papersys.summary.renderer import SummaryRenderer
+from papersys.feedback.service import FeedbackService, FeedbackConfig
+from papersys.config.publishing import PublishingConfig
 
 
 @dataclass(slots=True)
@@ -228,6 +231,27 @@ class SchedulerService:
 
         logger.info("Setting up scheduled jobs...")
         logger.info("Scheduler timezone: {}", self._timezone)
+        if self.config.scheduler.ingest_job:
+            self._register_job(
+                job_id="ingest",
+                job_config=self.config.scheduler.ingest_job,
+                func=self._run_ingest_pipeline,
+            )
+
+        if self.config.scheduler.embed_job:
+            self._register_job(
+                job_id="embed",
+                job_config=self.config.scheduler.embed_job,
+                func=self._run_embed_pipeline,
+            )
+
+        if self.config.scheduler.embedding_backfill_job:
+            self._register_job(
+                job_id="embedding_backfill",
+                job_config=self.config.scheduler.embedding_backfill_job,
+                func=self._run_embedding_backfill_pipeline,
+            )
+
         if self.config.scheduler.recommend_job:
             self._register_job(
                 job_id="recommend",
@@ -240,6 +264,20 @@ class SchedulerService:
                 job_id="summary",
                 job_config=self.config.scheduler.summary_job,
                 func=self._run_summary_pipeline,
+            )
+
+        if self.config.scheduler.publishing_job:
+            self._register_job(
+                job_id="publishing",
+                job_config=self.config.scheduler.publishing_job,
+                func=self._run_publishing_pipeline,
+            )
+
+        if self.config.scheduler.feedback_job:
+            self._register_job(
+                job_id="feedback",
+                job_config=self.config.scheduler.feedback_job,
+                func=self._run_feedback_pipeline,
             )
 
         if self.config.scheduler.backup_job:
@@ -279,11 +317,35 @@ class SchedulerService:
         next_run = self._job_next_run(job) if job is not None else None
         self.metrics.set_next_run(job_id, job_config.name, next_run)
 
+    def _run_ingest_pipeline(self, job_config: SchedulerJobConfig):
+        """Execute the ingestion pipeline."""
+        logger.info(f"Executing ingestion pipeline for job '{job_config.name}'...")
+        from papersys.ingestion.service import IngestionService
+        service = IngestionService(self.config)
+        service.run()
+        logger.info("Ingestion pipeline job finished.")
+
+    def _run_embed_pipeline(self, job_config: SchedulerJobConfig):
+        """Execute the embedding pipeline."""
+        logger.info(f"Executing embedding pipeline for job '{job_config.name}'...")
+        from papersys.embedding.service import EmbeddingService
+        service = EmbeddingService(self.config)
+        service.run()
+        logger.info("Embedding pipeline job finished.")
+
+    def _run_embedding_backfill_pipeline(self, job_config: SchedulerJobConfig):
+        """Execute the embedding backfill pipeline."""
+        logger.info(f"Executing embedding backfill pipeline for job '{job_config.name}'...")
+        from papersys.embedding.service import EmbeddingService
+        service = EmbeddingService(self.config)
+        service.autopatch()
+        logger.info("Embedding backfill pipeline job finished.")
+
     def _run_recommend_pipeline(self, job_config: SchedulerJobConfig):
-        """Placeholder for the actual recommendation pipeline execution."""
+        """Execute the recommendation pipeline."""
         logger.info(f"Executing recommendation pipeline for job '{job_config.name}'...")
-        # In a real implementation, this would trigger the recommendation pipeline
-        # from papersys.recommend.pipeline
+        from papersys.recommend.pipeline import run_recommend_pipeline
+        run_recommend_pipeline(self.config)
         logger.info("Recommendation pipeline job finished.")
 
     def _run_summary_pipeline(self, job_config: SchedulerJobConfig):

@@ -30,6 +30,8 @@ class SchedulerConfig(BaseConfig):
     embedding_backfill_job: SchedulerJobConfig | None = Field(None, description="Embedding backfill job schedule")
     recommend_job: SchedulerJobConfig | None = Field(None, description="Recommendation pipeline job schedule")
     summary_job: SchedulerJobConfig | None = Field(None, description="Summary pipeline job schedule")
+    publishing_job: SchedulerJobConfig | None = Field(None, description="Publishing site build job schedule")
+    feedback_job: SchedulerJobConfig | None = Field(None, description="Feedback fetch job schedule")
     backup_job: SchedulerJobConfig | None = Field(None, description="Backup pipeline job schedule")
 
 
