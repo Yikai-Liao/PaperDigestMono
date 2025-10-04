@@ -1,6 +1,6 @@
 # 数据迁移开发计划（2025-10-08）
-Status: In Progress
-Last-updated: 2025-10-03
+Status: Completed
+Last-updated: 2025-10-11
 
 ## 1. 背景与目标
 - 当前仓库已重构出本地优先的数据管线，但历史数据仍散落在 `reference/ArxivEmbedding`、`reference/PaperDigest`、`reference/PaperDigestAction` 以及 Hugging Face 数据集中，尚未迁移到新的 `metadata/`、`embeddings/`、`preference/`、`summarized/` 目录结构。
@@ -18,67 +18,26 @@ Last-updated: 2025-10-03
 - 偏好 CSV 分散在 `reference/PaperDigest/preference/` 与 `reference/PaperDigestAction/preference/`，字段为 `id,preference`。
 - 现有目录 `metadata/raw`、`embeddings/conan_v1` 存在示例数据，需确保迁移脚本支持覆盖/追加并生成校验清单。
 
-## 3. 方案范围
-### 范围内
-- 新增脚本 `scripts/migrate_reference_data.py`：
-  - 基于 `typer` 暴露 CLI，支持 `--years`、`--models`、`--dry-run`、`--source-root`、`--hf-dataset` 等参数。
-  - 通过 `huggingface_hub` 下载指定年度的 Parquet，并使用 `polars` 拆分：
-    - 输出 `metadata/curated/metadata-YYYY.csv`（列：`paper_id`、`title`、`abstract`、`categories`、`primary_category`、`authors`、`published_at`、`updated_at`、`doi`、`comment`、`journal_ref`）。
-    - 输出 `embeddings/<model_alias>/YYYY.parquet`，字段含 `paper_id`、`embedding`、`model_dim`、`generated_at`、`source`。
-  - 偏好数据：扫描参考仓库 CSV，合并去重（近期覆盖优先），输出 `preference/YYYY-MM.csv`。
-  - 摘要数据：
-    - 读取旧 JSON / JSONL，统一转换为一行一个对象的 JSONL，字段包括 `id`、`title`、`categories`、`score`、`abstract`、`problem_background`、`one_sentence_summary` 等原始信息，并补写 `source`、`migrated_at`。
-    - 结果写入 `summarized/YYYY-MM.jsonl`，保持月份粒度。
-  - 生成 `migration-report.json`（统计文件数、去重数量、跳过原因）。
-- 辅助校验：实现最小 polars 校验函数，确保每个输出文件非空且 schema 匹配预期。
-- 更新 `devdoc/architecture.md` / `devdoc/env.md` 中关于数据目录的落地状态。
+## 3. 执行结果
+- 迁移入口统一为 `papersys.cli migrate legacy`，支持年份/模型筛选、dry-run、下载重试与严格校验参数，替代原计划的脚本形式。
+- Hugging Face 年度 Parquet 已拆分写入本地：`data/metadata/metadata-2017.csv` ~ `metadata-2025.csv` 及 `data/metadata/latest.csv`；嵌入落地于 `data/embeddings/conan_v1/*.parquet`、`data/embeddings/jasper_v1/*.parquet`，并生成 manifest/backlog。
+- 偏好事件合并去重后输出 `data/preferences/events-2025.csv` 与 `data/preferences/events-unknown.csv`，保留缺失月份的记录以备后续补充。
+- 摘要 JSON/JSONL 统一为 `data/summaries/2025-05.jsonl` 与 `data/summaries/2025-06.jsonl`，记录源文件与迁移时间戳。
+- 生成 `data/migration-report.json`（771,373 条元数据与双模型嵌入、733 条偏好、575 条摘要），报告中未出现警告。
+- `devdoc/architecture.md` 与 `devdoc/env.md` 已更新迁移流程；新增 `devlog/2025-10-11-migration-cli-validation.md` 记录命令、校验与测试结果。
 
-### 非目标
-- 不在本次实现 scheduler 自动触发，只提供 CLI 手动迁移。
-- 不修改 Hugging Face 上的远端数据，仅做读取。
-- 不重构推荐/摘要代码逻辑，除非为适配新输出格式所必须。
+## 4. 数据校验快照（2025-10-11）
+- 元数据：`data/metadata` 下包含 2017-2025 年度 CSV 与 `latest.csv`；抽样检查行数与 `migration-report.json` 一致。
+- 嵌入：`data/embeddings/conan_v1/2025.parquet`、`data/embeddings/jasper_v1/2025.parquet` 均存在，manifest 统计与报告对齐。
+- 偏好：`data/preferences/events-2025.csv` 覆盖 2025 年所有事件；`events-unknown.csv` 集中未能解析月份的历史记录，后续可新增修正脚本。
+- 摘要：`data/summaries/2025-05.jsonl`、`2025-06.jsonl` 均为结构化 JSONL，字段顺序遵循迁移定义，验证通过。
+- 报告：`data/migration-report.json` 含 metadata/embeddings/preferences/summaries 统计、总行数及空 warning，作为日后回溯基准。
 
-## 4. 关键步骤
-1. **接口设计**：定义脚本 CLI、输出目录与报告格式；准备数据 schema 常量。
-2. **元数据/嵌入迁移**：
-   - 使用 `huggingface_hub` 下载年度 Parquet（支持缓存）。
-   - 解析列拆分 metadata / embeddings，多模型列以列表形式写入。
-   - 对嵌入缺失值生成 backlog 报告（写入 `embeddings/<model>/backlog-YYYY.parquet`）。
-3. **偏好数据合并**：
-   - 读取参考 CSV→统一 schema→按 `id` 去重（最新文件覆盖旧值）。
-   - 输出至 `preference/YYYY-MM.csv` 并保留 `source` 列。
-4. **摘要数据整理**：
-   - 遍历 `raw/*.json`、`summarized/*.jsonl`，归一化字段。
-   - 以 `summary_time` 或文件名推断年月，写入 JSONL。
-5. **报告与校验**：
-   - 汇总迁移条目数、跳过原因、耗时等。
-   - 在 dry-run 模式下仅打印预期操作。
-6. **文档更新与测试**：
-   - 补充运行指南、环境要求。
-   - 编写单测 / 集成测试（对小型 fixture 数据运行脚本核心函数）。
-
-## 5. 风险与缓解
-| 风险 | 影响 | 缓解策略 |
-| ---- | ---- | ---- |
-| Hugging Face 数据量大 / 速率限制 | 下载耗时或失败 | 支持 `--years`、`--cache-dir`、断点续传；提前校验 HF_TOKEN |
-| Schema 演化导致字段缺失 | 迁移中断或数据错位 | 为关键列提供默认值和警告；报告中标记缺失字段 |
-| JSON 异常或编码问题 | 摘要转换失败 | 加入 try/catch，记录错误文件，不中断主流程 |
-| 偏好 CSV 字段冲突 | 最终输出错误 | 统一 schema 后再合并；保留 `source_file` 便于追溯 |
-| 本地已有数据被覆盖 | 数据丢失 | 默认写入前备份（`.bak`）或要求 `--force` 标志 |
-
-## 6. 验证计划
-- 单元测试：针对元数据拆分、摘要合并、偏好去重等功能编写独立测试。
-- 集成测试：在 `tests/scripts/test_migrate_reference_data.py` 中使用 fixture 模拟小规模 Parquet/JSON，运行脚本核心函数（dry-run + 实际执行）。
-- 手动验证：
-  - `uv run --no-progress python scripts/migrate_reference_data.py --dry-run --years 2024`
-  - `uv run --no-progress python scripts/migrate_reference_data.py --years 2024 --models jasper_v1 --source-root reference/PaperDigest`
-  - 检查输出目录结构与 `migration-report.json`。
-
-## 7. 回滚策略
-- 脚本在执行前对目标文件生成 `.bak` 或跳过已有文件；若输出异常可删除新目录并恢复备份。
-- 迁移过程中保留原始参考数据（只读），失败时重新运行。
-
-## 8. 待确认事项
-- 嵌入 backlog 的结构（最小字段集合）是否需要立即对接调度器，或先生成报告即可。
-- 摘要 JSONL 字段命名是否需要兼容未来 Web 展示（待与前端确认）。
-- 是否需要将迁移脚本注册到 CLI（例如 `papersys.cli migrate-data`）。
+## 5. 跟进与治理
+- 后续若需增量迁移，可复用 `papersys.cli migrate legacy --dry-run --year <YYYY>`，通过报告校验差异后再正式写入。
+- 建议在反馈事件补录完成后清理 `events-unknown.csv`，并将映射规则纳入反馈服务。
+- 迁移结果已纳入 CLI/pytest 覆盖（`tests/migration/test_legacy.py`、`tests/cli/test_cli_migrate.py`）；如迁移规则再变动，需同步更新这些测试与报告字段定义。
+## 6. 经验与回滚
+- 已验证 dry-run 模式不会产生写入，可在需要时快速复核数据差异。
+- 若需回滚，可基于 `data/migration-report.json` 的统计删除对应年度文件并重新执行 `migrate legacy --year <YYYY> --force`。
+- 保留参考仓库副本与 Hugging Face 数据源，确保迁移逻辑未来调整时具备对照样本。

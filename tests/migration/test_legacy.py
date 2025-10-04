@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import polars as pl
+import pytest
 
 from papersys.migration.legacy import LegacyMigrator, MigrationConfig
 
@@ -27,7 +28,18 @@ def _write_jsonl(path: Path, payloads: list[dict]) -> None:
             fh.write(json.dumps(item) + "\n")
 
 
-def _base_config(tmp_path: Path, dry_run: bool) -> MigrationConfig:
+def _base_config(
+    tmp_path: Path,
+    dry_run: bool,
+    *,
+    strict_validation: bool = True,
+    hf_dataset: str | None = None,
+    years: tuple[int, ...] | None = None,
+    models: tuple[str, ...] | None = None,
+    max_retries: int = 3,
+    retry_wait: float = 0.0,
+    cache_dir: Path | None = None,
+) -> MigrationConfig:
     reference_root = tmp_path / "reference"
     paper_digest = reference_root / "PaperDigest"
     paper_digest_action = reference_root / "PaperDigestAction"
@@ -39,12 +51,15 @@ def _base_config(tmp_path: Path, dry_run: bool) -> MigrationConfig:
     return MigrationConfig(
         output_root=output_root,
         reference_roots=(paper_digest, paper_digest_action),
-        hf_dataset=None,
-        years=None,
-        models=None,
+        hf_dataset=hf_dataset,
+        years=years,
+        models=models,
         dry_run=dry_run,
         force=True,
-        cache_dir=None,
+        cache_dir=cache_dir,
+        max_retries=max_retries,
+        retry_wait=retry_wait,
+        strict_validation=strict_validation,
     )
 
 
@@ -96,6 +111,11 @@ def test_migrator_merges_preferences_and_summaries(tmp_path):
     report = migrator.run()
     preferences = cast(dict[str, Any], report["preferences"])
 
+    validation_entries = cast(list[dict[str, Any]], report["validation"])
+    validation_map = {entry["target"]: entry["status"] for entry in validation_entries}
+    assert validation_map["preferences-2024"] == "ok"
+    assert validation_map["summaries-2024-02"] == "ok"
+
     preference_output = config.output_root / "preferences"
     events_path = preference_output / "events-2024.csv"
     assert events_path.exists()
@@ -141,6 +161,10 @@ def test_migrator_merges_preferences_and_summaries(tmp_path):
     report_data = json.loads(report_path.read_text(encoding="utf-8"))
     assert report_data["preferences"]["unique_ids"] == 3
     assert report_data["summaries"]["records"] == 2
+    persisted_validation = {
+        entry["target"]: entry["status"] for entry in report_data["validation"]
+    }
+    assert persisted_validation["preferences-2024"] == "ok"
 
 
 def test_dry_run_skips_writes(tmp_path):
@@ -158,3 +182,99 @@ def test_dry_run_skips_writes(tmp_path):
     assert preferences["rows"] == 1
     assert not (config.output_root / "preferences").exists()
     assert not (config.output_root / "migration-report.json").exists()
+
+
+def test_download_retries_recorded(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    parquet_path = tmp_path / "2024.parquet"
+    pl.DataFrame(
+        {
+            "id": ["paper-001"],
+            "title": ["Sample"],
+            "abstract": ["Abstract"],
+            "categories": [["cs.CL"]],
+            "authors": [["Author"]],
+            "created": ["2024-01-01T00:00:00Z"],
+            "updated": ["2024-01-02T00:00:00Z"],
+            "model_a": [[0.1, 0.2]],
+        }
+    ).write_parquet(parquet_path)
+
+    config = _base_config(
+        tmp_path,
+        dry_run=True,
+        hf_dataset="dummy/dataset",
+        years=(2024,),
+        models=None,
+        max_retries=3,
+        retry_wait=0.0,
+        cache_dir=cache_dir,
+    )
+
+    class DummyApi:
+        def list_repo_files(self, *_: Any, **__: Any) -> list[str]:
+            return ["2024.parquet"]
+
+    attempts = {"count": 0}
+
+    def _fake_download(**kwargs: Any) -> str:  # type: ignore[override]
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("transient failure")
+        return str(parquet_path)
+
+    monkeypatch.setattr("papersys.migration.legacy.HfApi", lambda: DummyApi())
+    monkeypatch.setattr("papersys.migration.legacy.hf_hub_download", _fake_download)
+
+    migrator = LegacyMigrator(config)
+    report = migrator.run()
+
+    metadata_report = cast(dict[str, Any], report["metadata"])
+    assert metadata_report["years"]["2024"] == 1
+
+    downloads = cast(dict[str, Any], report["downloads"])
+    assert downloads["attempts"] == 2
+    assert downloads["retries"] == 1
+    assert len(downloads["failures"]) == 1
+
+
+def test_strict_validation_raises_on_missing_summary(tmp_path):
+    config = _base_config(tmp_path, dry_run=False)
+    paper_digest, _ = config.reference_roots
+
+    summary_dir = paper_digest / "raw"
+    _write_json(
+        summary_dir / "2024" / "paper-001.json",
+        {
+            "id": "paper-001",
+            "summary_time": "2024-01-01T00:00:00Z",
+        },
+    )
+
+    migrator = LegacyMigrator(config)
+    with pytest.raises(ValueError, match="summaries-2024-01"):
+        migrator.run()
+
+
+def test_non_strict_validation_downgrades_warnings(tmp_path):
+    config = _base_config(tmp_path, dry_run=False, strict_validation=False)
+    paper_digest, _ = config.reference_roots
+
+    summary_dir = paper_digest / "raw"
+    _write_json(
+        summary_dir / "2024" / "paper-001.json",
+        {
+            "id": "paper-001",
+            "summary_time": "2024-01-01T00:00:00Z",
+        },
+    )
+
+    migrator = LegacyMigrator(config)
+    report = migrator.run()
+
+    validation_entries = cast(list[dict[str, Any]], report["validation"])
+    target_status = {
+        entry["target"]: entry["status"] for entry in validation_entries if entry["target"].startswith("summaries")
+    }
+    assert target_status["summaries-2024-01"] == "warning"

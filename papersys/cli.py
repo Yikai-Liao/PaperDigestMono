@@ -14,6 +14,7 @@ from loguru import logger
 from .config import AppConfig, load_config
 from .config.embedding import EmbeddingConfig, EmbeddingModelConfig
 from .config.inspector import check_config, explain_config
+from .migration import LegacyMigrator, MigrationConfig as LegacyMigrationConfig
 from .recommend import RecommendationDataLoader, RecommendationPipeline
 from .scheduler import SchedulerService
 from .summary import SummaryPipeline
@@ -41,6 +42,8 @@ class CLIState:
 app = typer.Typer(help="Papersys orchestration helpers")
 config_app = typer.Typer(help="Validate and document configuration files")
 app.add_typer(config_app, name="config")
+migrate_app = typer.Typer(help="Data migration helpers")
+app.add_typer(migrate_app, name="migrate")
 
 
 def _default_config_path() -> Path:
@@ -108,6 +111,105 @@ def status(
 
     logger.info("Status command currently supports --dry-run only; showing status.")
     _report_system_status(config)
+
+
+@migrate_app.command("legacy")
+def migrate_legacy(
+    ctx: typer.Context,
+    year: list[int] = typer.Option(None, "--year", help="Year to migrate (repeatable)"),
+    model: list[str] = typer.Option(None, "--model", help="Embedding model alias to export"),
+    output_root: Path | None = typer.Option(
+        None,
+        "--output-root",
+        help="Destination root for migrated data (defaults to config.data_root)",
+    ),
+    reference_root: Path = typer.Option(
+        Path("reference"),
+        "--reference-root",
+        help="Root directory of legacy repositories",
+    ),
+    hf_dataset: str = typer.Option(
+        "lyk/ArxivEmbedding",
+        "--hf-dataset",
+        help="Hugging Face dataset id for metadata embeddings",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview actions without writing files"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing files"),
+    cache_dir: Path | None = typer.Option(
+        None,
+        "--cache-dir",
+        help="Optional cache directory for HF downloads",
+    ),
+    max_retries: int = typer.Option(
+        3,
+        "--max-retries",
+        min=1,
+        help="Maximum download attempts for Hugging Face artifacts",
+    ),
+    retry_wait: float = typer.Option(
+        1.0,
+        "--retry-wait",
+        min=0.0,
+        help="Base wait seconds before retrying downloads",
+    ),
+    strict: bool = typer.Option(
+        True,
+        "--strict/--no-strict",
+        help="Fail the run when validation detects schema issues",
+    ),
+) -> None:
+    state = _get_state(ctx)
+    config = state.ensure_config()
+    config_dir = state.config_path.parent
+
+    if output_root is None:
+        data_root = config.data_root
+        if data_root is None:
+            resolved_output = (config_dir / "data").resolve()
+        elif data_root.is_absolute():
+            resolved_output = data_root
+        else:
+            resolved_output = (config_dir / data_root).resolve()
+    else:
+        resolved_output = output_root if output_root.is_absolute() else (config_dir / output_root).resolve()
+
+    resolved_reference = (
+        reference_root
+        if reference_root.is_absolute()
+        else (config_dir / reference_root).resolve()
+    )
+
+    paper_digest_root = resolved_reference / "PaperDigest"
+    paper_digest_action_root = resolved_reference / "PaperDigestAction"
+
+    resolved_cache = None
+    if cache_dir is not None:
+        resolved_cache = cache_dir if cache_dir.is_absolute() else (config_dir / cache_dir)
+        resolved_cache = resolved_cache.resolve()
+
+    migration_config = LegacyMigrationConfig(
+        output_root=resolved_output,
+        reference_roots=(paper_digest_root, paper_digest_action_root),
+        hf_dataset=hf_dataset or None,
+        years=tuple(year) if year else None,
+        models=tuple(model) if model else None,
+        dry_run=dry_run,
+        force=force,
+        cache_dir=resolved_cache,
+        max_retries=max_retries,
+        retry_wait=retry_wait,
+        strict_validation=strict,
+    )
+
+    try:
+        migrator = LegacyMigrator(migration_config)
+        report = migrator.run()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.error("Migration run failed: {}", exc)
+        _exit(1)
+        return
+
+    typer.echo(json.dumps(report, indent=2, ensure_ascii=False))
 
 
 @app.command(help="Generate summaries for recommended papers")

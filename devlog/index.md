@@ -1,6 +1,6 @@
 # Devlog Index
 Status: In Progress
-Last-updated: 2025-10-03
+Last-updated: 2025-10-11
 
 | Date | Topic | Status | Notes | Link |
 | --- | --- | --- | --- | --- |
@@ -22,8 +22,9 @@ Last-updated: 2025-10-03
 | 2025-10-05 | CLI cleanup plan | Completed | Rationalise CLI surfaces, naming, docstrings | [devlog/2025-10-05-cli-cleanup-plan.md](2025-10-05-cli-cleanup-plan.md) |
 | 2025-10-06 | CLI standard tests | Completed | Baseline CLI behaviours & fixtures coverage | [devlog/2025-10-06-cli-standard-tests-plan.md](2025-10-06-cli-standard-tests-plan.md) |
 | 2025-10-07 | CLI command tests | Completed | Cover every command entrypoint, error handling | [devlog/2025-10-07-cli-command-tests-plan.md](2025-10-07-cli-command-tests-plan.md) |
-| 2025-10-08 | Data migration plan | In Progress | Consolidate reference datasets into new layout | [devlog/2025-10-08-data-migration-plan.md](2025-10-08-data-migration-plan.md) |
-| 2025-10-09 | Migration tool implementation | In Progress | Build legacy migration utilities, CLI, tests | [devlog/2025-10-09-migration-tool-implementation.md](2025-10-09-migration-tool-implementation.md) |
+| 2025-10-08 | Data migration plan | Completed | Local data verified, CLI in place, report clean | [devlog/2025-10-08-data-migration-plan.md](2025-10-08-data-migration-plan.md) |
+| 2025-10-09 | Migration tool implementation | Completed | Legacy migrator, CLI integration, retry & validation | [devlog/2025-10-09-migration-tool-implementation.md](2025-10-09-migration-tool-implementation.md) |
 | 2025-10-10 | Summary config refine | Completed | Split PDF fetch vs LLM config, update tests/config | [devlog/2025-10-10-summary-config-refine.md](2025-10-10-summary-config-refine.md) |
+| 2025-10-11 | Migration CLI & validation follow-up | Completed | CLI entry, retries, schema checks, docs/tests | [devlog/2025-10-11-migration-cli-validation.md](2025-10-11-migration-cli-validation.md) |
 | 2025-10-03 | Docs refactor plan | Completed | (Current) Harmonise devlog naming & documentation index | [devlog/2025-10-03-docs-refactor-plan.md](2025-10-03-docs-refactor-plan.md) |
 | 2025-10-03 | Legacy feature roadmap | Planned | Workstream breakdown & non-interactive merge rules | [devlog/2025-10-03-legacy-roadmap.md](2025-10-03-legacy-roadmap.md) |

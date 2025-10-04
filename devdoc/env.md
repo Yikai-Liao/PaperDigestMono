@@ -58,3 +58,9 @@ uv sync
 # 包含 vLLM
 uv sync --extra vllm
 ```
+
+## 数据迁移
+
+- 使用统一 CLI：`uv run --no-progress python -m papersys.cli migrate legacy --dry-run --hf-dataset "" --reference-root reference --output-root tmp/migration`。默认输出目录以配置文件所在目录解析，可通过 `--output-root` 指定。
+- 命令内置下载重试（`--max-retries`、`--retry-wait`）和 schema 校验，`--strict/--no-strict` 控制校验失败时的退出策略；所有执行都会生成含校验结果的 `migration-report.json`。
+- 建议先在 dry-run 下确认迁移报表，再移除 `--dry-run` 执行正式迁移；若需缓存 Hugging Face 数据，可通过 `--cache-dir` 定向至本地缓存目录。

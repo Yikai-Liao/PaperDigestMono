@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -53,6 +54,48 @@ SUMMARY_FIELD_ORDER: tuple[str, ...] = (
     "show",
 )
 
+METADATA_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "paper_id",
+    "title",
+    "abstract",
+    "categories",
+    "primary_category",
+    "authors",
+    "published_at",
+    "updated_at",
+    "source",
+)
+
+EMBEDDING_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "paper_id",
+    "embedding",
+    "generated_at",
+    "model_dim",
+    "source",
+)
+
+BACKLOG_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "paper_id",
+    "missing_reason",
+    "origin",
+    "queued_at",
+)
+
+PREFERENCE_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "paper_id",
+    "preference",
+    "recorded_at",
+)
+
+SUMMARY_REQUIRED_KEYS: tuple[str, ...] = (
+    "id",
+    "summary",
+    "summary_time",
+    "migrated_at",
+    "source",
+    "source_file",
+)
+
 
 @dataclass(slots=True)
 class MigrationConfig:
@@ -66,6 +109,9 @@ class MigrationConfig:
     dry_run: bool
     force: bool
     cache_dir: Path | None = None
+    max_retries: int = 3
+    retry_wait: float = 1.0
+    strict_validation: bool = True
 
 
 class LegacyMigrator:
@@ -96,8 +142,16 @@ class LegacyMigrator:
                 "output_files": 0,
                 "skipped": 0,
             },
+            "downloads": {
+                "attempts": 0,
+                "retries": 0,
+                "failures": [],
+            },
+            "validation": [],
             "warnings": [],
         }
+        self._download_stats = cast(dict[str, Any], self.report["downloads"])  # type: ignore[index]
+        self._validation_log = cast(list[dict[str, Any]], self.report["validation"])  # type: ignore[index]
         self._relative_roots: tuple[Path, ...] = (
             self.paper_digest_root,
             self.paper_digest_action_root,
@@ -160,14 +214,64 @@ class LegacyMigrator:
     def _load_year_frame(self, dataset: str, year: int) -> pl.DataFrame:
         logger.info("Loading dataset {} for year {}", dataset, year)
         filename = f"{year}.parquet"
-        path = hf_hub_download(
-            repo_id=dataset,
-            filename=filename,
-            repo_type="dataset",
-            local_dir=self.config.cache_dir,
-        )
-        logger.debug("Resolved parquet path {}", path)
-        return pl.read_parquet(path)
+        parquet_path = self._download_with_retries(dataset=dataset, filename=filename)
+        logger.debug("Resolved parquet path {}", parquet_path)
+        return pl.read_parquet(parquet_path)
+
+    def _download_with_retries(self, dataset: str, filename: str) -> Path:
+        attempts = max(1, self.config.max_retries)
+        wait_seconds = max(0.0, self.config.retry_wait)
+        last_error: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
+            self._download_stats["attempts"] = int(self._download_stats.get("attempts", 0)) + 1
+            try:
+                path_str = hf_hub_download(
+                    repo_id=dataset,
+                    filename=filename,
+                    repo_type="dataset",
+                    local_dir=self.config.cache_dir,
+                )
+                return Path(path_str)
+            except Exception as exc:  # pragma: no cover - network failure pathways
+                last_error = exc
+                failures = cast(list[dict[str, Any]], self._download_stats.setdefault("failures", []))
+                failures.append(
+                    {
+                        "dataset": dataset,
+                        "filename": filename,
+                        "attempt": attempt,
+                        "error": repr(exc),
+                    }
+                )
+                remaining = attempts - attempt
+                if remaining <= 0:
+                    break
+                self._download_stats["retries"] = int(self._download_stats.get("retries", 0)) + 1
+                sleep_for = wait_seconds * (2 ** (attempt - 1))
+                if sleep_for > 0:
+                    logger.warning(
+                        "Download failed for %s/%s (attempt %s/%s). Retrying in %.2fs...",
+                        dataset,
+                        filename,
+                        attempt,
+                        attempts,
+                        sleep_for,
+                    )
+                    time.sleep(sleep_for)
+                else:
+                    logger.warning(
+                        "Download failed for %s/%s (attempt %s/%s). Retrying immediately...",
+                        dataset,
+                        filename,
+                        attempt,
+                        attempts,
+                    )
+
+        assert last_error is not None
+        raise RuntimeError(
+            f"Failed to download {dataset}/{filename} after {attempts} attempts"
+        ) from last_error
 
     def _prepare_year_artifacts(
         self,
@@ -318,16 +422,33 @@ class LegacyMigrator:
 
         metadata_dir = self.output_root / "metadata"
         metadata_path = metadata_dir / f"metadata-{year}.csv"
+        self._validate_frame(
+            target=f"metadata-{year}",
+            frame=metadata_df,
+            required_columns=METADATA_REQUIRED_COLUMNS,
+        )
         self._write_csv(metadata_path, metadata_df, overwrite=True)
 
         embeddings_dir = self.output_root / "embeddings"
         for model, df in embeddings.items():
             model_dir = embeddings_dir / model
             parquet_path = model_dir / f"{year}.parquet"
+            self._validate_frame(
+                target=f"embeddings-{model}-{year}",
+                frame=df,
+                required_columns=EMBEDDING_REQUIRED_COLUMNS,
+                allow_empty=True,
+            )
             self._write_parquet(parquet_path, df, overwrite=True)
 
             backlog = backlogs.get(model)
             if backlog is not None and not backlog.is_empty():
+                self._validate_frame(
+                    target=f"embeddings-{model}-backlog-{year}",
+                    frame=backlog,
+                    required_columns=BACKLOG_REQUIRED_COLUMNS,
+                    allow_empty=True,
+                )
                 self.embedding_backlogs[model].append(backlog)
 
     def _finalize_metadata(self) -> None:
@@ -339,6 +460,11 @@ class LegacyMigrator:
         if sort_columns:
             combined = combined.sort(sort_columns)
         latest_path = (self.output_root / "metadata") / "latest.csv"
+        self._validate_frame(
+            target="metadata-latest",
+            frame=combined,
+            required_columns=METADATA_REQUIRED_COLUMNS,
+        )
         self._write_csv(latest_path, combined, overwrite=True)
 
     def _finalize_embeddings(self) -> None:
@@ -354,6 +480,12 @@ class LegacyMigrator:
             if backlog_frames:
                 backlog_df = pl.concat(backlog_frames, how="vertical").unique(subset=["paper_id"], keep="last")
                 backlog_path = model_dir / "backlog.parquet"
+                self._validate_frame(
+                    target=f"embeddings-{model}-backlog",
+                    frame=backlog_df,
+                    required_columns=BACKLOG_REQUIRED_COLUMNS,
+                    allow_empty=False,
+                )
                 self._write_parquet(backlog_path, backlog_df, overwrite=True)
 
             manifest_payload = {
@@ -461,6 +593,11 @@ class LegacyMigrator:
                 },
             ).sort(["paper_id", "recorded_at"])
             target = preferences_dir / f"events-{year_key}.csv"
+            self._validate_frame(
+                target=f"preferences-{year_key}",
+                frame=df,
+                required_columns=PREFERENCE_REQUIRED_COLUMNS,
+            )
             self._write_csv(target, df, overwrite=True)
             output_files += 1
 
@@ -526,6 +663,7 @@ class LegacyMigrator:
         for month, rows in grouped.items():
             rows.sort(key=lambda item: item["id"])
             target = self.output_root / "summaries" / f"{month}.jsonl"
+            self._validate_summary_rows(target=f"summaries-{month}", rows=rows)
             self._write_jsonl(target, rows, overwrite=True)
 
         self.report["summaries"]["output_files"] = len(grouped)  # type: ignore[index]
@@ -582,6 +720,107 @@ class LegacyMigrator:
     def _write_report(self) -> None:
         report_path = self.output_root / "migration-report.json"
         self._write_json(report_path, cast(dict, self.report), overwrite=True)
+
+    def _record_validation(
+        self,
+        *,
+        target: str,
+        status: str,
+        missing: Sequence[str] | None,
+        is_empty: bool,
+        message: str | None,
+    ) -> None:
+        entry: dict[str, Any] = {
+            "target": target,
+            "status": status,
+            "is_empty": is_empty,
+        }
+        if missing:
+            entry["missing"] = list(missing)
+        if message:
+            entry["message"] = message
+        self._validation_log.append(entry)
+
+    def _validate_frame(
+        self,
+        *,
+        target: str,
+        frame: pl.DataFrame,
+        required_columns: Sequence[str],
+        allow_empty: bool = False,
+    ) -> None:
+        missing = [column for column in required_columns if column not in frame.columns]
+        is_empty = frame.is_empty()
+        issues: list[str] = []
+        if missing:
+            issues.append(f"missing columns: {', '.join(missing)}")
+        if is_empty and not allow_empty:
+            issues.append("no rows produced")
+
+        if issues:
+            message = "; ".join(issues)
+            status = "error" if self.config.strict_validation else "warning"
+            self._append_warning(f"{target}: {message}")
+        else:
+            message = None
+            status = "ok"
+
+        self._record_validation(
+            target=target,
+            status=status,
+            missing=missing,
+            is_empty=is_empty,
+            message=message,
+        )
+
+        if status == "error":
+            raise ValueError(f"{target} validation failed: {message}")
+
+    def _validate_summary_rows(self, target: str, rows: Sequence[dict[str, Any]]) -> None:
+        is_empty = len(rows) == 0
+        missing_by_record: dict[str, list[str]] = {}
+
+        for index, row in enumerate(rows):
+            missing_keys = [key for key in SUMMARY_REQUIRED_KEYS if key not in row]
+            if missing_keys:
+                record_id = str(row.get("id", f"row-{index + 1}"))
+                missing_by_record[record_id] = missing_keys
+
+        issues: list[str] = []
+        if missing_by_record:
+            preview = ", ".join(
+                f"{record_id}: {', '.join(keys)}"
+                for record_id, keys in list(missing_by_record.items())[:3]
+            )
+            issues.append(f"missing keys -> {preview}")
+            for record_id, keys in missing_by_record.items():
+                self._append_warning(
+                    f"{target} record {record_id} missing keys: {', '.join(keys)}"
+                )
+
+        if is_empty:
+            issues.append("no summary rows produced")
+            self._append_warning(f"{target}: no summary rows produced")
+
+        missing_keys = sorted({key for keys in missing_by_record.values() for key in keys})
+
+        if issues:
+            message = "; ".join(issues)
+            status = "error" if self.config.strict_validation else "warning"
+        else:
+            message = None
+            status = "ok"
+
+        self._record_validation(
+            target=target,
+            status=status,
+            missing=missing_keys,
+            is_empty=is_empty,
+            message=message,
+        )
+
+        if status == "error":
+            raise ValueError(f"{target} validation failed: {message}")
 
     @staticmethod
     def _frame_vector_dimension(frame: pl.DataFrame) -> int:
@@ -726,6 +965,23 @@ def migrate_command(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview actions without writing files"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing files"),
     cache_dir: Path | None = typer.Option(None, "--cache-dir", help="Optional cache directory for HF downloads"),
+    max_retries: int = typer.Option(
+        3,
+        "--max-retries",
+        min=1,
+        help="Maximum download attempts for Hugging Face artifacts",
+    ),
+    retry_wait: float = typer.Option(
+        1.0,
+        "--retry-wait",
+        min=0.0,
+        help="Base wait seconds before retrying downloads",
+    ),
+    strict: bool = typer.Option(
+        True,
+        "--strict/--no-strict",
+        help="Fail the run when validation detects schema issues",
+    ),
 ) -> None:
     reference_root = reference_root.resolve()
     paper_digest_root = reference_root / "PaperDigest"
@@ -740,11 +996,17 @@ def migrate_command(
         dry_run=dry_run,
         force=force,
         cache_dir=cache_dir.resolve() if cache_dir else None,
+        max_retries=max_retries,
+        retry_wait=retry_wait,
+        strict_validation=strict,
     )
 
     migrator = LegacyMigrator(config)
     report = migrator.run()
     typer.echo(json.dumps(report, indent=2, ensure_ascii=False))
+
+
+app.command("legacy")(migrate_command)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point

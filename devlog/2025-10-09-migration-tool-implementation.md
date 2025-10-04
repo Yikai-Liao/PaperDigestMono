@@ -1,6 +1,6 @@
 # 2025-10-09 Migration Tool Implementation
-Status: In Progress
-Last-updated: 2025-10-03
+Status: Completed
+Last-updated: 2025-10-11
 
 ## Context
 - 按照 `2025-10-08-data-migration-plan.md` 的路线，开始落地迁移工具。
@@ -18,6 +18,6 @@ Last-updated: 2025-10-03
 - 手动检查输出目录结构与迁移报表内容符合预期。
 
 ## Follow-ups
-- 接入 CLI 的顶层命令（`papersys.cli`）以便统一调用。
-- 为 Hugging Face 下载添加重试/速率限制策略，避免网络抖动影响批量迁移。
-- 扩展迁移后的数据校验（schema 校正、统计对齐等），并与现有 pipeline 做一次端到端验证。
+- （完成）接入 CLI 的顶层命令（`papersys.cli migrate legacy`）以便统一调用。
+- （完成）为 Hugging Face 下载添加重试/速率限制策略，避免网络抖动影响批量迁移。
+- （完成）扩展迁移后的数据校验（schema 校正、统计对齐等），并运行 `uv run --no-progress pytest tests/migration/test_legacy.py`、`uv run --no-progress pytest tests/cli` 保障回归。
