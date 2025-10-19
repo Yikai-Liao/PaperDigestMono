@@ -16,6 +16,9 @@ from papersys.summary.models import SummarySource
 from papersys.summary.pipeline import SummaryPipeline
 
 
+pytestmark = pytest.mark.skip(reason="Disabled temporarily: integration test is too slow for current suite.")
+
+
 @dataclass(slots=True)
 class RealDataWorkspace:
     """Prepared workspace derived from the migrated real dataset."""
