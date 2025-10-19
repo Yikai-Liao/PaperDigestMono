@@ -75,6 +75,8 @@ class IngestionService:
         from_date = from_date or self.config.start_date
         until_date = until_date or self.config.end_date
 
+        categories_to_fetch = self.config.categories or [None]
+        
         logger.info(
             "Starting ingestion: from={}, until={}, categories={}, limit={}",
             from_date,
@@ -87,29 +89,34 @@ class IngestionService:
         total_saved = 0
         buffer: list[dict[str, str]] = []
 
-        try:
-            for record in self.client.list_records(
-                from_date=from_date,
-                until_date=until_date,
-                set_spec=None,
-            ):
-                total_fetched += 1
+        # Fetch records for each category separately to use server-side filtering
+        for category in categories_to_fetch:
+            if limit is not None and total_saved >= limit:
+                logger.info("Reached save limit before processing all categories")
+                break
+                
+            if category:
+                logger.info("Fetching category: {}", category)
+            
+            try:
+                for record in self.client.list_records(
+                    from_date=from_date,
+                    until_date=until_date,
+                    set_spec=category,
+                ):
+                    total_fetched += 1
 
-                # Skip unwanted categories early
-                if self.config.categories and record.primary_category not in self.config.categories:
-                    continue
+                    total_saved, stop = self._handle_record_during_fetch(
+                        record=record,
+                        buffer=buffer,
+                        total_saved=total_saved,
+                        limit=limit,
+                    )
+                    if stop:
+                        break
 
-                total_saved, stop = self._handle_record_during_fetch(
-                    record=record,
-                    buffer=buffer,
-                    total_saved=total_saved,
-                    limit=limit,
-                )
-                if stop:
-                    break
-
-        except Exception as exc:
-            logger.error("Failed to fetch records: {}", exc)
+            except Exception as exc:
+                logger.error("Failed to fetch records for category {}: {}", category, exc)
 
         # Flush any remaining rows in buffer, respecting limit
         total_saved = self._flush_buffer_with_limit(buffer, total_saved, limit)

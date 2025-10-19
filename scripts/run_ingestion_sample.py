@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-
+import sys
 import typer
 from loguru import logger
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from papersys.config import AppConfig, load_config
 from papersys.ingestion import IngestionService
 
-app = typer.Typer(add_completion=False)
+app = typer.Typer(add_completion=True)
 
 
 def _resolve_base_path(config: AppConfig, config_path: Path) -> Path:
@@ -40,13 +41,15 @@ def main(
     """Trigger the ingestion service with a low record limit."""
     config_path = config_path.resolve()
     logger.info("Loading configuration from {}", config_path)
-    config = load_config(AppConfig, config_path)
+    config: AppConfig = load_config(AppConfig, config_path)
+
 
     if config.ingestion is None or not config.ingestion.enabled:
         logger.error("Ingestion is disabled in the provided configuration")
         raise typer.Exit(1)
 
     ingestion_cfg = config.ingestion
+    logger.info("Loaded configuration: {}", ingestion_cfg.model_dump())
     base_path = _resolve_base_path(config, config_path)
     logger.info("Resolved data root to {}", base_path)
 

@@ -12,6 +12,29 @@ import requests
 from loguru import logger
 
 
+def format_category_for_oai(category_string: str) -> str:
+    """Convert category format like 'cs.AI' or 'stat.ML' to OAI setSpec format.
+    
+    Examples:
+        'cs.AI' -> 'cs:cs:AI'
+        'stat.ML' -> 'stat:stat:ML'
+        'cs' -> 'cs' (top-level, unchanged)
+    """
+    parts = category_string.split('.', 1)
+    if len(parts) == 2:
+        group = parts[0]
+        category = parts[1]
+        if '-' in category:
+            # Format: group:archive (e.g., 'cs:cs-AI')
+            return f"{group}:{category}"
+        else:
+            # Format: group:group:CATEGORY (e.g., 'cs:cs:AI')
+            return f"{group}:{group}:{category}"
+    else:
+        # Assume it's already a valid top-level setSpec
+        return category_string
+
+
 @dataclass(frozen=True)
 class ArxivRecord:
     """Parsed arXiv paper metadata from OAI-PMH response."""
@@ -64,7 +87,9 @@ class ArxivOAIClient:
         Args:
             from_date: Start date in YYYY-MM-DD format (optional)
             until_date: End date in YYYY-MM-DD format (optional)
-            set_spec: OAI set specification (optional)
+            set_spec: OAI set specification for filtering by category (optional).
+                     Can be a formatted setSpec like 'cs:cs:AI' or a category string
+                     like 'cs.AI' which will be auto-formatted.
 
         Yields:
             ArxivRecord objects parsed from OAI responses
@@ -78,7 +103,11 @@ class ArxivOAIClient:
         if until_date:
             params["until"] = until_date
         if set_spec:
+            # Auto-format category strings to OAI setSpec format
+            if '.' in set_spec and ':' not in set_spec:
+                set_spec = format_category_for_oai(set_spec)
             params["set"] = set_spec
+            logger.debug("Using OAI set parameter: {}", set_spec)
 
         resumption_token: str | None = None
         total_records = 0
