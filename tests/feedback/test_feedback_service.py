@@ -13,7 +13,7 @@ from papersys.config.publishing import PublishingConfig
 @pytest.fixture
 def config(tmp_path):
     prefs_dir = tmp_path / "preferences"
-    prefs_dir.mkdir()
+    prefs_dir.mkdir(exist_ok=True)
     return FeedbackConfig(
         github_token="fake_token",
         owner="test_owner",
@@ -90,7 +90,7 @@ def test_extract_arxiv_id():
 def test_update_preferences_csv(tmp_path, service):
     """Test updating preferences CSV."""
     prefs_dir = tmp_path / "preferences"
-    prefs_dir.mkdir()
+    prefs_dir.mkdir(exist_ok=True)
     csv_path = prefs_dir / "2025-01.csv"
     existing_df = pl.DataFrame({"arxiv_id": ["2310.12345"], "preference": ["neutral"]})
     existing_df.write_csv(csv_path)
@@ -111,7 +111,8 @@ def test_update_preferences_csv(tmp_path, service):
         preferences_dir=prefs_dir
     )
     new_service = FeedbackService(new_config)
-    new_service._update_preferences_csv(feedback_df)
+    with patch.object(FeedbackService, "_get_latest_preferences_csv", return_value=csv_path):
+        new_service._update_preferences_csv(feedback_df)
 
     updated_df = pl.read_csv(csv_path)
     assert updated_df["preference"][0] == "like"

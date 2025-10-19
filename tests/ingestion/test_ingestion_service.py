@@ -158,7 +158,10 @@ def test_flush_rows_updates_existing_records(test_service: IngestionService) -> 
     assert df_year["comment"].to_list() == ["new"]
 
 
-def test_deduplicate_csv_files(test_service: IngestionService) -> None:
+def test_deduplicate_csv_files(
+    test_service: IngestionService,
+    tmp_path: Path,
+) -> None:
     """Explicit deduplication should remove duplicate identifiers."""
     year_path = test_service.output_dir / "metadata-2023.csv"
     frame = pl.DataFrame(
@@ -239,4 +242,3 @@ def test_fetch_and_save_with_limit(
     df_year = pl.read_csv(year_path, schema_overrides=SCHEMA_OVERRIDES)
     assert df_year.height == 2
     assert set(df_year["paper_id"].to_list()) == {"2301.00001", "2301.00002"}
-

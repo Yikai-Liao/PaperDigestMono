@@ -119,17 +119,29 @@ class FeedbackService:
     def _update_preferences_csv(self, feedback_df: pl.DataFrame):
         """Update the latest preferences CSV with new feedback."""
         latest_csv = self._get_latest_preferences_csv()
+        normalized_feedback = feedback_df.with_columns(
+            pl.col("arxiv_id").cast(pl.String)
+        )
+
         if latest_csv.exists():
-            existing_df = pl.read_csv(latest_csv)
+            existing_df = pl.read_csv(
+                latest_csv,
+                schema_overrides={"arxiv_id": pl.String},
+            )
             # Merge on arxiv_id, update preference
-            merged_df = existing_df.join(feedback_df.select(["arxiv_id", "preference"]), on="arxiv_id", how="left", suffix="_new")
+            merged_df = existing_df.join(
+                normalized_feedback.select(["arxiv_id", "preference"]),
+                on="arxiv_id",
+                how="left",
+                suffix="_new",
+            )
             merged_df = merged_df.with_columns(
                 pl.when(pl.col("preference_new").is_not_null()).then(pl.col("preference_new")).otherwise(pl.col("preference")).alias("preference")
             ).drop("preference_new")
             merged_df.write_csv(latest_csv)
             logger.info(f"Updated preferences in {latest_csv}")
         else:
-            feedback_df.write_csv(latest_csv)
+            normalized_feedback.write_csv(latest_csv)
             logger.info(f"Created new preferences file {latest_csv}")
 
     def _get_latest_preferences_csv(self) -> Path:

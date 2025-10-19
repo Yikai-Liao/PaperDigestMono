@@ -1,8 +1,9 @@
 """Publishing configuration models."""
 from typing import Optional
 from pathlib import Path
+import os
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from .base import BaseConfig
 
