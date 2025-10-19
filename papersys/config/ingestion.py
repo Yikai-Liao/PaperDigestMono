@@ -15,10 +15,6 @@ class IngestionConfig(BaseConfig):
         "metadata",
         description="Output directory (within the data root) for canonical metadata CSV files",
     )
-    curated_dir: str = Field(
-        "metadata/curated",
-        description="Directory for curated or filtered metadata artefacts",
-    )
     
     # Fetch settings
     start_date: str | None = Field(None, description="Start date for incremental fetch (YYYY-MM-DD)")

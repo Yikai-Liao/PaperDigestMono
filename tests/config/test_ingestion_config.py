@@ -19,7 +19,6 @@ def test_ingestion_config_minimal(tmp_path: Path) -> None:
         [ingestion]
         enabled = true
         output_dir = "metadata/raw"
-        curated_dir = "metadata/curated"
         """,
         encoding="utf-8",
     )
@@ -30,8 +29,6 @@ def test_ingestion_config_minimal(tmp_path: Path) -> None:
     assert app_config.ingestion.output_dir == "metadata/raw"
     assert app_config.ingestion.batch_size == 1000  # default
     assert app_config.ingestion.categories == []  # default empty
-
-
 def test_ingestion_config_full(tmp_path: Path) -> None:
     """Test loading full ingestion configuration with all fields."""
     config_path = tmp_path / "config.toml"
@@ -40,7 +37,6 @@ def test_ingestion_config_full(tmp_path: Path) -> None:
         [ingestion]
         enabled = true
         output_dir = "test/raw"
-        curated_dir = "test/curated"
         start_date = "2024-01-01"
         end_date = "2024-12-31"
         batch_size = 500

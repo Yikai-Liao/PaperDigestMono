@@ -36,7 +36,6 @@ def test_config() -> IngestionConfig:
     return IngestionConfig(
         enabled=True,
         output_dir="metadata",
-        curated_dir="curated",
         start_date="2023-01-01",
         end_date="2023-01-31",
         batch_size=2,
@@ -82,8 +81,8 @@ def test_record_to_row(test_service: IngestionService) -> None:
     assert row["source"] == "papersys.ingestion.oai"
 
 
-def test_flush_rows_creates_year_files(test_service: IngestionService) -> None:
-    """Flushing rows should create yearly files and the latest snapshot."""
+def test_save_records_creates_year_files(test_service: IngestionService) -> None:
+    """Saving records should create yearly files."""
     record1 = ArxivRecord(
         paper_id="2301.00001",
         title="Paper 1",
@@ -108,16 +107,12 @@ def test_flush_rows_creates_year_files(test_service: IngestionService) -> None:
     test_service.save_records([record1, record2])
 
     year_path = test_service.output_dir / "metadata-2023.csv"
-    latest_path = test_service.output_dir / "latest.csv"
 
     assert year_path.exists()
-    assert latest_path.exists()
 
     df_year = pl.read_csv(year_path, schema_overrides=SCHEMA_OVERRIDES)
-    df_latest = pl.read_csv(latest_path, schema_overrides=SCHEMA_OVERRIDES)
 
     assert df_year.height == 2
-    assert df_latest.height == 2
     assert "cs.AI;" not in df_year["categories"].to_list()[0]  # Already normalised
 
 

@@ -90,9 +90,15 @@ def main(
         saved = service.save_records(records)
         logger.info("Saved {} records to disk", saved)
 
-        # Show deduplicated DataFrame
-        if service.latest_path.exists():
-            df_after_dedup = pl.read_csv(service.latest_path, schema_overrides=_SCHEMA)
+        # Show deduplicated DataFrame by scanning all yearly files
+        year_files = sorted(service.output_dir.glob("metadata-*.csv"))
+        if year_files:
+            lazy_frames = [
+                pl.scan_csv(year_file, schema_overrides=_SCHEMA)
+                for year_file in year_files
+            ]
+            df_after_dedup = pl.concat(lazy_frames, how="vertical_relaxed").collect()
+            df_after_dedup = service._deduplicate_dataframe(df_after_dedup)
             logger.info("DataFrame after deduplication:\n{}", df_after_dedup)
     else:
         logger.info("Skipping save (use --save to enable)")

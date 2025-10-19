@@ -12,7 +12,6 @@ timezone = "UTC"
 [ingestion]
 enabled = true
 output_dir = "metadata/raw"
-curated_dir = "metadata/curated"
 
 [embedding]
 enabled = true

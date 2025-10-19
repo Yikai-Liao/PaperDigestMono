@@ -54,12 +54,9 @@ def make_app_config(
     if include_ingestion:
         raw_dir = data_root / "metadata" / "raw"
         raw_dir.mkdir(parents=True, exist_ok=True)
-        curated_dir = data_root / "metadata" / "curated"
-        curated_dir.mkdir(parents=True, exist_ok=True)
         ingestion_cfg = IngestionConfig(
             enabled=True,
             output_dir=str(raw_dir),
-            curated_dir=str(curated_dir),
             start_date=None,
             end_date=None,
             batch_size=1000,

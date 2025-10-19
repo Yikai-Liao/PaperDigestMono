@@ -12,7 +12,6 @@ logging_level = "INFO"
 [ingestion]
 enabled = true
 output_dir = "metadata"
-curated_dir = "metadata/curated"
 start_date = "2018-01-01"  # Start from 2018
 end_date = ""
 batch_size = 1000

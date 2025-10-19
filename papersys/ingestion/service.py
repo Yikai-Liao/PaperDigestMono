@@ -48,9 +48,6 @@ class IngestionService:
         )
         self.output_dir = self._resolve_output_dir(Path(config.output_dir), base_path)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.curated_dir = self._resolve_output_dir(Path(config.curated_dir), base_path)
-        self.curated_dir.mkdir(parents=True, exist_ok=True)
-        self.latest_path = self.output_dir / "latest.csv"
 
     def fetch_records(
         self,
@@ -117,7 +114,7 @@ class IngestionService:
         records: list[ArxivRecord],
     ) -> int:
         """
-        Save records to yearly CSV files and update latest.csv.
+        Save records to yearly CSV files.
 
         Args:
             records: List of ArxivRecord objects to save.
@@ -144,9 +141,6 @@ class IngestionService:
         for year, year_rows in grouped.items():
             self._write_year_file(year, year_rows)
 
-        if grouped:
-            self._update_latest_view()
-
         total_saved = sum(len(rows) for rows in grouped.values())
         logger.info("Save complete: saved={} records", total_saved)
         return total_saved
@@ -161,7 +155,6 @@ class IngestionService:
         Fetch records from arXiv and save them to yearly CSV files under `output_dir`.
 
         Records are grouped by publication year and written to `metadata-YYYY.csv` files.
-        A consolidated `latest.csv` snapshot is refreshed on each successful flush.
 
         Args:
             from_date: Start date in YYYY-MM-DD format (defaults to config.start_date).
@@ -198,7 +191,7 @@ class IngestionService:
         return len(records), total_saved
 
     def deduplicate_csv_files(self) -> int:
-        """Deduplicate yearly CSV files and refresh `latest.csv`."""
+        """Deduplicate yearly CSV files."""
 
         total_removed = 0
         for year_file in sorted(self.output_dir.glob("metadata-*.csv")):
@@ -226,9 +219,6 @@ class IngestionService:
             except Exception as exc:
                 logger.error("Failed to deduplicate {}: {}", year_file, exc)
 
-        if total_removed > 0:
-            self._update_latest_view()
-
         return total_removed
 
     def _write_year_file(self, year: int, rows: list[dict[str, str]]) -> None:
@@ -251,20 +241,6 @@ class IngestionService:
 
         combined.select(_COLUMN_ORDER).write_csv(year_path)
         logger.debug("Wrote {} records to {}", len(rows), year_path)
-
-    def _update_latest_view(self) -> None:
-        year_files = sorted(self.output_dir.glob("metadata-*.csv"))
-        if not year_files:
-            return
-
-        lazy_frames = [
-            pl.scan_csv(year_file, schema_overrides=_SCHEMA)
-            for year_file in year_files
-        ]
-        combined = pl.concat(lazy_frames, how="vertical_relaxed").collect()
-        combined = self._deduplicate_dataframe(combined)
-        combined.select(_COLUMN_ORDER).write_csv(self.latest_path)
-        logger.debug("Refreshed latest.csv with {} records", combined.height)
 
     def _record_to_row(self, record: ArxivRecord) -> dict[str, str]:
         return {
