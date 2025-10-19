@@ -102,10 +102,11 @@ class ArxivOAIClient:
             records = root.findall(".//oai:record", self.NAMESPACES)
             for record_elem in records:
                 try:
-                    parsed = self._parse_record(record_elem)
-                    if parsed:
-                        yield parsed
-                        total_records += 1
+                    parsed: ArxivRecord | None = self._parse_record(record_elem)
+                    if not parsed:
+                        continue
+                    yield parsed
+                    total_records += 1
                 except Exception as exc:
                     logger.warning("Failed to parse record: {}", exc)
                     continue

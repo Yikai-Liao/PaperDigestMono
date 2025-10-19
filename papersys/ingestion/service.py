@@ -95,46 +95,24 @@ class IngestionService:
             ):
                 total_fetched += 1
 
+                # Skip unwanted categories early
                 if self.config.categories and record.primary_category not in self.config.categories:
                     continue
 
-                buffer.append(self._record_to_row(record))
-
-                if limit is not None:
-                    remaining = max(limit - total_saved, 0)
-                    if remaining == 0:
-                        logger.info("Reached save limit of {} records", limit)
-                        break
-                    if len(buffer) >= remaining:
-                        rows_to_save = buffer[:remaining]
-                        self._flush_rows(rows_to_save)
-                        total_saved += len(rows_to_save)
-                        buffer.clear()
-                        logger.info("Reached save limit of {} records", limit)
-                        break
-
-                if len(buffer) >= self.config.batch_size:
-                    self._flush_rows(buffer)
-                    total_saved += len(buffer)
-                    buffer.clear()
+                total_saved, stop = self._handle_record_during_fetch(
+                    record=record,
+                    buffer=buffer,
+                    total_saved=total_saved,
+                    limit=limit,
+                )
+                if stop:
+                    break
 
         except Exception as exc:
             logger.error("Failed to fetch records: {}", exc)
 
-        if buffer and (limit is None or total_saved < limit):
-            if limit is not None:
-                remaining = max(limit - total_saved, 0)
-                if remaining <= 0:
-                    buffer.clear()
-                else:
-                    rows_to_save = buffer[:remaining]
-                    self._flush_rows(rows_to_save)
-                    total_saved += len(rows_to_save)
-                    buffer.clear()
-            else:
-                self._flush_rows(buffer)
-                total_saved += len(buffer)
-                buffer.clear()
+        # Flush any remaining rows in buffer, respecting limit
+        total_saved = self._flush_buffer_with_limit(buffer, total_saved, limit)
 
         logger.info(
             "Ingestion complete: fetched={}, saved={}",
@@ -142,6 +120,72 @@ class IngestionService:
             total_saved,
         )
         return total_fetched, total_saved
+
+    def _handle_record_during_fetch(
+        self,
+        record: ArxivRecord,
+        buffer: list[dict[str, str]],
+        total_saved: int,
+        limit: int | None,
+    ) -> tuple[int, bool]:
+        """Process a single fetched record: append to buffer and flush if needed.
+
+        Returns the updated total_saved count and a stop flag indicating the
+        fetch loop should terminate (True when the save limit has been reached).
+        """
+        buffer.append(self._record_to_row(record))
+
+        # If a limit is set, check remaining capacity and flush partial buffer when needed
+        if limit is not None:
+            remaining = max(limit - total_saved, 0)
+            if remaining == 0:
+                logger.info("Reached save limit of {} records", limit)
+                return total_saved, True
+            if len(buffer) >= remaining:
+                rows_to_save = buffer[:remaining]
+                self._flush_rows(rows_to_save)
+                total_saved += len(rows_to_save)
+                buffer.clear()
+                logger.info("Reached save limit of {} records", limit)
+                return total_saved, True
+
+        # Flush by batch size when buffer is full
+        if len(buffer) >= self.config.batch_size:
+            self._flush_rows(buffer)
+            total_saved += len(buffer)
+            buffer.clear()
+
+        return total_saved, False
+
+    def _flush_buffer_with_limit(
+        self,
+        buffer: list[dict[str, str]],
+        total_saved: int,
+        limit: int | None,
+    ) -> int:
+        """Flush any remaining rows in buffer, respecting an optional limit.
+
+        Returns the updated total_saved count.
+        """
+        if not buffer or (limit is not None and total_saved >= limit):
+            return total_saved
+
+        if limit is not None:
+            remaining = max(limit - total_saved, 0)
+            if remaining <= 0:
+                buffer.clear()
+                return total_saved
+            rows_to_save = buffer[:remaining]
+            self._flush_rows(rows_to_save)
+            total_saved += len(rows_to_save)
+            buffer.clear()
+            return total_saved
+
+        # No limit: flush everything
+        self._flush_rows(buffer)
+        total_saved += len(buffer)
+        buffer.clear()
+        return total_saved
 
     def deduplicate_csv_files(self) -> int:
         """Deduplicate yearly CSV files and refresh `latest.csv`."""
