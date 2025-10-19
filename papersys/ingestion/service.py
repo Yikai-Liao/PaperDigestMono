@@ -52,6 +52,105 @@ class IngestionService:
         self.curated_dir.mkdir(parents=True, exist_ok=True)
         self.latest_path = self.output_dir / "latest.csv"
 
+    def fetch_records(
+        self,
+        from_date: str | None = None,
+        until_date: str | None = None,
+        limit: int | None = None,
+    ) -> list[ArxivRecord]:
+        """
+        Fetch records from arXiv without persisting them.
+
+        Args:
+            from_date: Start date in YYYY-MM-DD format (defaults to config.start_date).
+            until_date: End date in YYYY-MM-DD format (defaults to config.end_date).
+            limit: Maximum number of records to fetch (optional).
+
+        Returns:
+            List of ArxivRecord objects with paper metadata.
+        """
+        from_date = from_date or self.config.start_date
+        until_date = until_date or self.config.end_date
+        categories_to_fetch = self.config.categories or [None]
+
+        logger.info(
+            "Fetching records: from={}, until={}, categories={}, limit={}",
+            from_date,
+            until_date,
+            self.config.categories,
+            limit,
+        )
+
+        all_records: list[ArxivRecord] = []
+
+        for category in categories_to_fetch:
+            if limit is not None and len(all_records) >= limit:
+                logger.info("Reached fetch limit before processing all categories")
+                break
+
+            if category:
+                logger.info("Fetching category: {}", category)
+
+            try:
+                for record in self.client.list_records(
+                    from_date=from_date,
+                    until_date=until_date,
+                    set_spec=category,
+                ):
+                    all_records.append(record)
+
+                    if limit is not None and len(all_records) >= limit:
+                        logger.info("Reached fetch limit of {} records", limit)
+                        break
+
+            except Exception as exc:
+                logger.error("Failed to fetch records for category {}: {}", category, exc)
+
+        logger.info(
+            "Fetch complete: collected={} records",
+            len(all_records),
+        )
+        return all_records
+
+    def save_records(
+        self,
+        records: list[ArxivRecord],
+    ) -> int:
+        """
+        Save records to yearly CSV files and update latest.csv.
+
+        Args:
+            records: List of ArxivRecord objects to save.
+
+        Returns:
+            Number of records successfully saved.
+        """
+        if not records:
+            logger.warning("No records to save")
+            return 0
+
+        logger.info("Saving {} records to disk", len(records))
+
+        # Convert to rows and group by year
+        grouped: dict[int, list[dict[str, str]]] = defaultdict(list)
+        for record in records:
+            row = self._record_to_row(record)
+            year = self._extract_year(row.get("published_at", ""))
+            if year is None:
+                logger.warning("Skipping record with invalid published_at: {}", record.paper_id)
+                continue
+            grouped[year].append(row)
+
+        for year, year_rows in grouped.items():
+            self._write_year_file(year, year_rows)
+
+        if grouped:
+            self._update_latest_view()
+
+        total_saved = sum(len(rows) for rows in grouped.values())
+        logger.info("Save complete: saved={} records", total_saved)
+        return total_saved
+
     def fetch_and_save(
         self,
         from_date: str | None = None,
@@ -75,8 +174,6 @@ class IngestionService:
         from_date = from_date or self.config.start_date
         until_date = until_date or self.config.end_date
 
-        categories_to_fetch = self.config.categories or [None]
-        
         logger.info(
             "Starting ingestion: from={}, until={}, categories={}, limit={}",
             from_date,
@@ -85,114 +182,20 @@ class IngestionService:
             limit,
         )
 
-        total_fetched = 0
-        total_saved = 0
-        buffer: list[dict[str, str]] = []
+        records = self.fetch_records(
+            from_date=from_date,
+            until_date=until_date,
+            limit=limit,
+        )
 
-        # Fetch records for each category separately to use server-side filtering
-        for category in categories_to_fetch:
-            if limit is not None and total_saved >= limit:
-                logger.info("Reached save limit before processing all categories")
-                break
-                
-            if category:
-                logger.info("Fetching category: {}", category)
-            
-            try:
-                for record in self.client.list_records(
-                    from_date=from_date,
-                    until_date=until_date,
-                    set_spec=category,
-                ):
-                    total_fetched += 1
-
-                    total_saved, stop = self._handle_record_during_fetch(
-                        record=record,
-                        buffer=buffer,
-                        total_saved=total_saved,
-                        limit=limit,
-                    )
-                    if stop:
-                        break
-
-            except Exception as exc:
-                logger.error("Failed to fetch records for category {}: {}", category, exc)
-
-        # Flush any remaining rows in buffer, respecting limit
-        total_saved = self._flush_buffer_with_limit(buffer, total_saved, limit)
+        total_saved = self.save_records(records)
 
         logger.info(
             "Ingestion complete: fetched={}, saved={}",
-            total_fetched,
+            len(records),
             total_saved,
         )
-        return total_fetched, total_saved
-
-    def _handle_record_during_fetch(
-        self,
-        record: ArxivRecord,
-        buffer: list[dict[str, str]],
-        total_saved: int,
-        limit: int | None,
-    ) -> tuple[int, bool]:
-        """Process a single fetched record: append to buffer and flush if needed.
-
-        Returns the updated total_saved count and a stop flag indicating the
-        fetch loop should terminate (True when the save limit has been reached).
-        """
-        buffer.append(self._record_to_row(record))
-
-        # If a limit is set, check remaining capacity and flush partial buffer when needed
-        if limit is not None:
-            remaining = max(limit - total_saved, 0)
-            if remaining == 0:
-                logger.info("Reached save limit of {} records", limit)
-                return total_saved, True
-            if len(buffer) >= remaining:
-                rows_to_save = buffer[:remaining]
-                self._flush_rows(rows_to_save)
-                total_saved += len(rows_to_save)
-                buffer.clear()
-                logger.info("Reached save limit of {} records", limit)
-                return total_saved, True
-
-        # Flush by batch size when buffer is full
-        if len(buffer) >= self.config.batch_size:
-            self._flush_rows(buffer)
-            total_saved += len(buffer)
-            buffer.clear()
-
-        return total_saved, False
-
-    def _flush_buffer_with_limit(
-        self,
-        buffer: list[dict[str, str]],
-        total_saved: int,
-        limit: int | None,
-    ) -> int:
-        """Flush any remaining rows in buffer, respecting an optional limit.
-
-        Returns the updated total_saved count.
-        """
-        if not buffer or (limit is not None and total_saved >= limit):
-            return total_saved
-
-        if limit is not None:
-            remaining = max(limit - total_saved, 0)
-            if remaining <= 0:
-                buffer.clear()
-                return total_saved
-            rows_to_save = buffer[:remaining]
-            self._flush_rows(rows_to_save)
-            total_saved += len(rows_to_save)
-            buffer.clear()
-            return total_saved
-
-        # No limit: flush everything
-        self._flush_rows(buffer)
-        total_saved += len(buffer)
-        buffer.clear()
-        return total_saved
+        return len(records), total_saved
 
     def deduplicate_csv_files(self) -> int:
         """Deduplicate yearly CSV files and refresh `latest.csv`."""
@@ -205,6 +208,13 @@ class IngestionService:
                 original_count = frame.height
                 frame = self._deduplicate_dataframe(frame)
                 removed = original_count - frame.height
+                logger.debug(
+                    "Deduplicated {}: {} records before, {} records after, removed {} duplicates",
+                    year_file.name,
+                    original_count,
+                    frame.height,
+                    removed,
+                )
                 if removed > 0:
                     frame.select(_COLUMN_ORDER).write_csv(year_file)
                     total_removed += removed
@@ -221,21 +231,6 @@ class IngestionService:
 
         return total_removed
 
-    def _flush_rows(self, rows: Iterable[dict[str, str]]) -> None:
-        grouped: dict[int, list[dict[str, str]]] = defaultdict(list)
-        for row in rows:
-            year = self._extract_year(row.get("published_at", ""))
-            if year is None:
-                logger.warning("Skipping record with invalid published_at: {}", row)
-                continue
-            grouped[year].append(row)
-
-        for year, year_rows in grouped.items():
-            self._write_year_file(year, year_rows)
-
-        if grouped:
-            self._update_latest_view()
-
     def _write_year_file(self, year: int, rows: list[dict[str, str]]) -> None:
         if not rows:
             return
@@ -250,7 +245,10 @@ class IngestionService:
         else:
             combined = new_frame
 
+        logger.debug("Year {}: {} records before deduplication", year, combined.height)
         combined = self._deduplicate_dataframe(combined)
+        logger.debug("Year {}: {} records after deduplication", year, combined.height)
+
         combined.select(_COLUMN_ORDER).write_csv(year_path)
         logger.debug("Wrote {} records to {}", len(rows), year_path)
 

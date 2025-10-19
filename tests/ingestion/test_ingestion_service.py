@@ -105,8 +105,7 @@ def test_flush_rows_creates_year_files(test_service: IngestionService) -> None:
         updated_at="2023-01-02",
     )
 
-    rows = [test_service._record_to_row(record1), test_service._record_to_row(record2)]
-    test_service._flush_rows(rows)
+    test_service.save_records([record1, record2])
 
     year_path = test_service.output_dir / "metadata-2023.csv"
     latest_path = test_service.output_dir / "latest.csv"
@@ -147,8 +146,8 @@ def test_flush_rows_updates_existing_records(test_service: IngestionService) -> 
         comment="new",
     )
 
-    test_service._flush_rows([test_service._record_to_row(initial)])
-    test_service._flush_rows([test_service._record_to_row(updated)])
+    test_service.save_records([initial])
+    test_service.save_records([updated])
 
     year_path = test_service.output_dir / "metadata-2023.csv"
     df_year = pl.read_csv(year_path, schema_overrides=SCHEMA_OVERRIDES)
