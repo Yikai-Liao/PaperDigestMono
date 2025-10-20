@@ -35,32 +35,41 @@ hf_repo_id = "lyk/ArxivEmbedding"
 hf_token = "env:HF_TOKEN"
 
 [[embedding.models]]
-alias = "jasper_v1"
+alias = "all_mini_v2"
 name = "sentence-transformers/all-MiniLM-L6-v2"
 dimension = 384
-batch_size = 32
+batch_size = 256
 max_length = 512
+
+[[embedding.models]]
+alias = "jasper_v1"
+name = "NovaSearch/jasper_en_vision_language_v1"
+dimension = 1024
+batch_size = 32
+max_length = 1024
 device = ""  # Auto-detect
 precision = "auto"
 backend = "sentence_transformer"
 
 [[embedding.models]]
 alias = "conan_v1"
-name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-dimension = 384
+name = "TencentBAC/Conan-embedding-v1"
+dimension = 1792
 batch_size = 32
 max_length = 512
 backend = "sentence_transformer"
 
 [[embedding.models]]
-alias = "qwen3_v1"
+alias = "qwen3_0_6b"
 name = "Qwen/Qwen3-Embedding-0.6B"
-dimension = 768
+dimension = 1024
 batch_size = 8
-max_length = 512
+max_length = 2048
 device = "cuda"  # Explicitly select GPU to avoid pre-spawn CUDA init
 precision = "auto"
-backend = "vllm"
+backend = "sentence_transformer"
+
+# vllm_gpu_memory_utilization = 0.55
 
 # Scheduler configuration
 [scheduler]

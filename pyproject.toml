@@ -27,8 +27,15 @@ dependencies = [
     "torch>=2.8.0",
     "typer>=0.19.2",
     "uvicorn>=0.37.0",
+    "vllm>=0.10.2",
     "wrapt-timeout-decorator>=1.5.1",
 ]
+
+[project.scripts]
+papersys = "papersys.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["papersys*"]
 
 [project.optional-dependencies]
 # vLLM for large embedding models (e.g., Qwen3-Embedding-0.6B for jasper_v1)
@@ -38,6 +45,7 @@ vllm = [
 ]
 
 [tool.uv]
+package = true
 # Use vLLM's official wheel repository for compatible builds
 [[tool.uv.index]]
 name = "vllm"

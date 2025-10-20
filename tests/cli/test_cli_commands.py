@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 import polars as pl
 
@@ -287,60 +288,44 @@ def test_ingest_disabled_exits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, 
     assert "Ingestion is not enabled" in captured.err
 
 
-def test_embed_backlog_flow(
+def test_embed_backlog_flag_logs_and_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     config_path: Path,
 ) -> None:
     config = make_app_config(tmp_path)
     patch_load_config(monkeypatch, config)
-
-    backlog_calls: dict[str, Any] = {}
-    instances: list[Any] = []
-
-    class DummyEmbeddingService:
-        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
-            self.cfg = cfg
-            self.base_path = base_path
-            instances.append(self)
-
-        def detect_backlog(self, metadata_dir: Path, model_cfg: Any) -> pl.DataFrame:
-            backlog_calls["metadata_dir"] = metadata_dir
-            backlog_calls["alias"] = getattr(model_cfg, "alias", "")
-            path = metadata_dir / "backlog.csv"
-            return pl.DataFrame({"origin": [str(path)]})
-
-        def refresh_backlog(self, metadata_dir: Path, model_cfg: Any) -> pl.DataFrame:
-            backlog_calls["refreshed"] = True
-            return pl.DataFrame({"origin": []})
-
-        def generate_embeddings_for_csv(
-            self,
-            csv_path: Path,
-            model_cfg: Any,
-            *,
-            limit: int | None = None,
-        ) -> tuple[int, Any]:
-            backlog_calls.setdefault("processed", []).append((csv_path, limit))
-            return 3, None
-
-    monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
 
     assert config.ingestion is not None
     metadata_dir = Path(config.ingestion.output_dir)
     metadata_dir.mkdir(parents=True, exist_ok=True)
-    (metadata_dir / "backlog.csv").write_text("paper_id,title\n1,Example\n", encoding="utf-8")
-    # ASSERTION: Backlog seed in tmp_path (via config); safe for embed tests
+    sample_csv = metadata_dir / "metadata-2024.csv"
+    sample_csv.write_text("paper_id,title,abstract\n2401.00001,Title,Abstract\n", encoding="utf-8")
+    # ASSERTION: Sample CSV uses tmp_path; no real metadata contamination
 
-    exit_code = main(["--config", str(config_path), "embed", "--backlog", "--limit", "5"])
+    calls: dict[str, Any] = {}
+
+    class DummyEmbeddingService:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
+            self.cfg = cfg
+            self.base_path = base_path
+            self.output_dir = Path(cfg.output_dir)
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        def embed_texts(self, texts: list[str], model_cfg: Any) -> Any:
+            calls["texts"] = texts
+            return np.ones((len(texts), model_cfg.dimension), dtype=np.float32)
+
+    monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
+
+    with logger_to_stderr():
+        exit_code = main(["--config", str(config_path), "embed", "--backlog"])
 
     assert exit_code == 0
-    assert backlog_calls["alias"] == "test"
-    assert backlog_calls["processed"][0][1] == 5
-    assert instances
+    assert calls["texts"] == ["Title\n\nAbstract"]
 
 
-def test_embed_full_generation(
+def test_embed_full_generation_writes_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     config_path: Path,
@@ -349,42 +334,194 @@ def test_embed_full_generation(
     patch_load_config(monkeypatch, config)
 
     assert config.ingestion is not None
-    assert config.ingestion is not None
     metadata_dir = Path(config.ingestion.output_dir)
-    sample_csv = metadata_dir / "sample.csv"
-    sample_csv.parent.mkdir(parents=True, exist_ok=True)
-    sample_csv.write_text("id,title\n1,Example\n")
-    # ASSERTION: Sample CSV in tmp_path; no real metadata/ pollution
-
-    instances: list[Any] = []
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    sample_csv = metadata_dir / "metadata-2024.csv"
+    sample_csv.write_text(
+        "paper_id,title,abstract\n2401.00001,Title,Abstract\n2401.00002,Another,Summary\n",
+        encoding="utf-8",
+    )
+    # ASSERTION: Metadata stays within tmp_path fixture
 
     class DummyEmbeddingService:
         def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
             self.cfg = cfg
             self.base_path = base_path
-            self.calls: list[Path] = []
-            instances.append(self)
+            self.output_dir = Path(cfg.output_dir)
+            self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        def generate_embeddings_for_csv(
-            self,
-            csv_path: Path,
-            model_cfg: Any,
-            *,
-            limit: int | None = None,
-        ) -> tuple[int, Any]:
-            self.calls.append(csv_path)
-            return 1, None
-
-        def refresh_backlog(self, metadata_dir: Path, model_cfg: Any) -> None:  # pragma: no cover - CLI expectation
-            return None
+        def embed_texts(self, texts: list[str], model_cfg: Any) -> Any:
+            return np.arange(len(texts) * model_cfg.dimension, dtype=np.float32).reshape(
+                len(texts), model_cfg.dimension
+            )
 
     monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
 
-    exit_code = main(["--config", str(config_path), "embed", "--limit", "2"])
+    with logger_to_stderr():
+        exit_code = main(["--config", str(config_path), "embed", "--limit", "1"])
 
     assert exit_code == 0
-    assert instances
-    assert instances[0].calls == [sample_csv]
+
+    model_dir = Path(config.embedding.output_dir) / config.embedding.models[0].alias
+    output_file = model_dir / "2024.parquet"
+    assert output_file.exists()
+
+    frame = pl.read_parquet(output_file)
+    assert frame.shape[0] == 1
+    assert frame["paper_id"].to_list() == ["2401.00001"]
+
+
+def test_embed_skips_existing_when_not_overwriting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config_path: Path,
+) -> None:
+    config = make_app_config(tmp_path)
+    patch_load_config(monkeypatch, config)
+
+    assert config.ingestion is not None
+    metadata_dir = Path(config.ingestion.output_dir)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    sample_csv = metadata_dir / "metadata-2024.csv"
+    sample_csv.write_text(
+        "paper_id,title,abstract\n2401.00001,Title,Abstract\n2401.00002,Another,Summary\n",
+        encoding="utf-8",
+    )
+
+    model_dir = Path(config.embedding.output_dir) / config.embedding.models[0].alias
+    model_dir.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "paper_id": ["2401.00001"],
+            "embedding": [[0.0] * config.embedding.models[0].dimension],
+        }
+    ).write_parquet(model_dir / "2024.parquet")
+
+    calls: dict[str, Any] = {}
+
+    class DummyEmbeddingService:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
+            self.cfg = cfg
+            self.base_path = base_path
+            self.output_dir = Path(cfg.output_dir)
+
+        def embed_texts(self, texts: list[str], model_cfg: Any) -> Any:
+            calls["texts"] = texts
+            return np.zeros((len(texts), model_cfg.dimension), dtype=np.float32)
+
+    monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
+
+    with logger_to_stderr():
+        exit_code = main(["--config", str(config_path), "embed"])
+
+    assert exit_code == 0
+    assert calls["texts"] == ["Another\n\nSummary"]
+
+    frame = pl.read_parquet(model_dir / "2024.parquet")
+    assert frame.shape[0] == 2
+    assert frame["paper_id"].to_list() == ["2401.00001", "2401.00002"]
+
+
+def test_embed_overwrite_recomputes_all(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config_path: Path,
+) -> None:
+    config = make_app_config(tmp_path)
+    patch_load_config(monkeypatch, config)
+
+    assert config.ingestion is not None
+    metadata_dir = Path(config.ingestion.output_dir)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    sample_csv = metadata_dir / "metadata-2024.csv"
+    sample_csv.write_text(
+        "paper_id,title,abstract\n2401.00001,Title,Abstract\n2401.00002,Another,Summary\n",
+        encoding="utf-8",
+    )
+
+    model_dir = Path(config.embedding.output_dir) / config.embedding.models[0].alias
+    model_dir.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "paper_id": ["2401.00001"],
+            "embedding": [[0.0] * config.embedding.models[0].dimension],
+        }
+    ).write_parquet(model_dir / "2024.parquet")
+
+    calls: dict[str, Any] = {}
+
+    class DummyEmbeddingService:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
+            self.cfg = cfg
+            self.base_path = base_path
+            self.output_dir = Path(cfg.output_dir)
+
+        def embed_texts(self, texts: list[str], model_cfg: Any) -> Any:
+            calls["texts"] = texts
+            return np.ones((len(texts), model_cfg.dimension), dtype=np.float32)
+
+    monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
+
+    with logger_to_stderr():
+        exit_code = main(["--config", str(config_path), "embed", "--overwrite"])
+
+    assert exit_code == 0
+    assert calls["texts"] == ["Title\n\nAbstract", "Another\n\nSummary"]
+
+    frame = pl.read_parquet(model_dir / "2024.parquet")
+    assert frame.shape[0] == 2
+    assert frame["paper_id"].to_list() == ["2401.00001", "2401.00002"]
+
+
+def test_embed_no_new_papers_short_circuits(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config_path: Path,
+) -> None:
+    config = make_app_config(tmp_path)
+    patch_load_config(monkeypatch, config)
+
+    assert config.ingestion is not None
+    metadata_dir = Path(config.ingestion.output_dir)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    sample_csv = metadata_dir / "metadata-2024.csv"
+    sample_csv.write_text(
+        "paper_id,title,abstract\n2401.00001,Title,Abstract\n",
+        encoding="utf-8",
+    )
+
+    model_dir = Path(config.embedding.output_dir) / config.embedding.models[0].alias
+    model_dir.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "paper_id": ["2401.00001"],
+            "embedding": [[0.0] * config.embedding.models[0].dimension],
+        }
+    ).write_parquet(model_dir / "2024.parquet")
+
+    calls: dict[str, Any] = {"called": False}
+
+    class DummyEmbeddingService:
+        def __init__(self, cfg: Any, base_path: Path | None = None) -> None:
+            self.cfg = cfg
+            self.base_path = base_path
+            self.output_dir = Path(cfg.output_dir)
+
+        def embed_texts(self, texts: list[str], model_cfg: Any) -> Any:
+            calls["called"] = True
+            return np.zeros((len(texts), model_cfg.dimension), dtype=np.float32)
+
+    monkeypatch.setattr("papersys.embedding.EmbeddingService", DummyEmbeddingService)
+
+    with logger_to_stderr():
+        exit_code = main(["--config", str(config_path), "embed"])
+
+    assert exit_code == 0
+    assert calls["called"] is False
+
+    frame = pl.read_parquet(model_dir / "2024.parquet")
+    assert frame.shape[0] == 1
+    assert frame["paper_id"].to_list() == ["2401.00001"]
 
 
 def test_recommend_dry_run(

@@ -34,6 +34,12 @@ class EmbeddingModelConfig(BaseConfig):
         description="Embedding backend implementation ('sentence_transformer' or 'vllm')",
     )
     model_path: str | None = Field(None, description="Local path to model weights (optional)")
+    vllm_gpu_memory_utilization: float | None = Field(
+        None,
+        ge=0.1,
+        le=1.0,
+        description="Optional GPU memory utilization target for vLLM (0.1-1.0); overrides environment variable",
+    )
 
 
 class EmbeddingConfig(BaseConfig):

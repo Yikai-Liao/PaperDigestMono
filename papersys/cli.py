@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from datetime import datetime, timezone
+
+import polars as pl
+import re
 import typer
 import uvicorn
 from loguru import logger
@@ -64,6 +68,199 @@ def _get_state(ctx: typer.Context) -> CLIState:
 
 def _exit(code: int) -> None:
     raise typer.Exit(code)
+
+
+def _extract_year_from_paper_id(paper_id: str) -> str | None:
+    clean = paper_id.strip()
+    if not clean:
+        return None
+
+    new_style = re.match(r"^(?P<yy>\d{2})(?P<mm>\d{2})\.\d{4,5}(?:v\d+)?$", clean)
+    if new_style:
+        year = 2000 + int(new_style.group("yy"))
+        return f"{year:04d}"
+
+    legacy = re.match(r"^[a-z\-]+/(?P<yy>\d{2})(?P<mm>\d{2})\d+(?:v\d+)?$", clean, re.IGNORECASE)
+    if legacy:
+        yy = int(legacy.group("yy"))
+        year = 1900 + yy if yy >= 91 else 2000 + yy
+        return f"{year:04d}"
+
+    return None
+
+
+def _fallback_year_from_path(path: Path) -> str | None:
+    parts = [path.parent.name, path.stem]
+    for token in parts:
+        for piece in token.replace("_", "-").split("-"):
+            if piece.isdigit() and len(piece) == 4:
+                return piece
+    return None
+
+
+def _raise_for_year(paper_id: str, source: Path) -> str:
+    raise ValueError(f"Cannot determine publication year for paper_id '{paper_id}' from {source}")
+
+
+def _collect_embedding_inputs(
+    metadata_paths: list[Path],
+    limit: int | None,
+    skip_map: dict[str, set[str]] | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    """Load metadata CSV files and compose embedding inputs."""
+
+    frames: list[pl.DataFrame] = []
+    for path in metadata_paths:
+        if not path.exists():
+            logger.warning("Metadata file not found: {}", path)
+            continue
+        default_year = _fallback_year_from_path(path)
+
+        frame = pl.read_csv(
+            path,
+            columns=["paper_id", "title", "abstract"],
+            schema_overrides={
+                "paper_id": pl.String,
+                "title": pl.String,
+                "abstract": pl.String,
+            },
+        ).with_columns(
+            pl.concat_str(
+                [
+                    pl.col("title").fill_null(""),
+                    pl.lit("\n\n"),
+                    pl.col("abstract").fill_null(""),
+                ],
+            )
+            .str.strip_chars()
+            .alias("__embedding_text"),
+            pl.col("paper_id")
+            .map_elements(
+                lambda pid, fallback=default_year: (
+                    _extract_year_from_paper_id(pid) or fallback or (_raise_for_year(pid, path))
+                )
+            )
+            .alias("__year"),
+        )
+
+        frames.append(
+            frame.select(
+                pl.col("paper_id").cast(pl.String),
+                pl.col("__embedding_text").alias("text"),
+                pl.col("__year").alias("year"),
+            )
+        )
+
+    if not frames:
+        return [], [], []
+
+    combined = pl.concat(frames, how="vertical_relaxed")
+    combined = combined.filter(pl.col("paper_id").str.len_bytes() > 0)
+    if skip_map:
+        combined = combined.filter(
+            pl.struct(["year", "paper_id"]).map_elements(
+                lambda row: row["paper_id"] not in skip_map.get(row["year"], set())
+            )
+        )
+    combined = combined.unique(subset=["paper_id"], keep="first", maintain_order=True)
+
+    if limit is not None:
+        combined = combined.head(limit)
+
+    return (
+        combined["text"].to_list(),
+        combined["paper_id"].to_list(),
+        combined["year"].to_list(),
+    )
+
+
+def _write_embeddings_output(
+    service: "EmbeddingService",
+    model_config: EmbeddingModelConfig,
+    paper_ids: list[str],
+    embeddings: Any,
+    years: list[str],
+    *,
+    overwrite: bool,
+) -> Path:
+    """Persist generated embeddings to Parquet format."""
+
+    model_dir = service.output_dir / model_config.alias
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    vectors = embeddings.tolist()
+    result_paths: set[Path] = set()
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    grouped: dict[str, list[int]] = {}
+    for idx, year in enumerate(years):
+        grouped.setdefault(year, []).append(idx)
+
+    for year, indices in grouped.items():
+        subset_ids = [paper_ids[i] for i in indices]
+        subset_vectors = [vectors[i] for i in indices]
+        year_frame = pl.DataFrame(
+            {
+                "paper_id": subset_ids,
+                "embedding": subset_vectors,
+                "generated_at": [timestamp] * len(subset_ids),
+                "model_dim": [model_config.dimension] * len(subset_ids),
+                "source": ["papersys.embedding.service"] * len(subset_ids),
+            }
+        ).with_columns(pl.col("model_dim").cast(pl.UInt32)).unique(
+            subset=["paper_id"], keep="first", maintain_order=True
+        )
+
+        output_path = model_dir / f"{year}.parquet"
+        result_paths.add(output_path)
+
+        if output_path.exists() and not overwrite:
+            existing = pl.read_parquet(output_path)
+            existing_aligned, new_aligned = _prepare_embedding_frames(
+                existing, year_frame, model_config, timestamp
+            )
+            combined = pl.concat([existing_aligned, new_aligned], how="vertical_relaxed")
+            combined.unique(subset=["paper_id"], keep="first", maintain_order=True).write_parquet(output_path)
+        else:
+            year_frame.write_parquet(output_path)
+
+    # return last processed path for logging convenience
+    return next(iter(result_paths)) if result_paths else model_dir
+
+
+def _prepare_embedding_frames(
+    existing_frame: pl.DataFrame,
+    new_frame: pl.DataFrame,
+    model_config: EmbeddingModelConfig,
+    timestamp: str,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Align existing and new frames to share the same schema before concatenation."""
+
+    all_columns: list[str] = []
+    seen: set[str] = set()
+    for col in list(existing_frame.columns) + list(new_frame.columns):
+        if col not in seen:
+            seen.add(col)
+            all_columns.append(col)
+
+    def _ensure_columns(frame: pl.DataFrame) -> pl.DataFrame:
+        result = frame
+        for column in all_columns:
+            if column in result.columns:
+                continue
+            if column == "generated_at":
+                result = result.with_columns(pl.lit(timestamp).alias("generated_at"))
+            elif column == "model_dim":
+                result = result.with_columns(
+                    pl.lit(model_config.dimension).cast(pl.UInt32).alias("model_dim")
+                )
+            elif column == "source":
+                result = result.with_columns(pl.lit("papersys.embedding.service").alias("source"))
+            else:
+                result = result.with_columns(pl.lit(None).alias(column))
+        return result.select(all_columns)
+
+    return _ensure_columns(existing_frame), _ensure_columns(new_frame)
 
 
 @app.callback(invoke_without_command=True)
@@ -391,6 +588,11 @@ def embed(
         False,
         help="Process backlog (CSV files without embeddings)",
     ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite/--no-overwrite",
+        help="Recompute embeddings for all papers even if outputs exist",
+    ),
 ) -> None:
     state = _get_state(ctx)
     config = state.ensure_config()
@@ -427,59 +629,58 @@ def embed(
     metadata_dir = metadata_dir_raw if metadata_dir_raw.is_absolute() else base_path / metadata_dir_raw
 
     if backlog:
-        backlog_df = service.detect_backlog(metadata_dir, model_config)
-        if backlog_df.is_empty():
-            logger.info("No backlog items found for model {}", model_config.alias)
-            return
-
-        metadata_paths = (
-            backlog_df.select("origin").unique()["origin"].to_list()
-        )
-        logger.info(
-            "Processing {} metadata files from backlog for model {}",
-            len(metadata_paths),
-            model_config.alias,
-        )
-        total_count = 0
-        for path_str in metadata_paths:
-            csv_path = Path(path_str)
-            if not csv_path.exists():
-                logger.warning("Backlog metadata file not found: {}", csv_path)
-                continue
-            count, _ = service.generate_embeddings_for_csv(
-                csv_path,
-                model_config,
-                limit=limit,
-            )
-            total_count += count
-            service.refresh_backlog(metadata_dir, model_config)
-
-        logger.info("Generated {} embeddings from backlog", total_count)
-        return
+        logger.warning("Backlog processing is no longer supported; running full embedding instead.")
 
     csv_files = sorted(path for path in metadata_dir.glob("metadata-*.csv") if path.is_file())
     if not csv_files:
-        csv_files = [
-            path
-            for path in metadata_dir.rglob("*.csv")
-            if path.is_file() and path.name != "latest.csv"
-        ]
+        csv_files = [path for path in metadata_dir.rglob("*.csv") if path.is_file()]
 
     if not csv_files:
         logger.error("No metadata CSV files found in {}", metadata_dir)
         _exit(1)
 
-    logger.info("Found {} CSV files", len(csv_files))
-    total_count = 0
-    for csv_path in csv_files:
-        count, _ = service.generate_embeddings_for_csv(
-            csv_path,
-            model_config,
-            limit=limit,
-        )
-        total_count += count
-    logger.info("Generated {} embeddings total", total_count)
-    service.refresh_backlog(metadata_dir, model_config)
+    logger.info("Found {} metadata files", len(csv_files))
+
+    existing_ids_map: dict[str, set[str]] = {}
+    if not overwrite:
+        model_dir = service.output_dir / model_config.alias
+        if model_dir.exists():
+            for parquet_path in model_dir.glob("*.parquet"):
+                try:
+                    year = parquet_path.stem
+                    existing_column = pl.read_parquet(parquet_path, columns=["paper_id"])
+                    existing_ids_map[year] = set(existing_column["paper_id"].to_list())
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("Failed to load existing embeddings from {}: {}", parquet_path, exc)
+        total_skipped = sum(len(ids) for ids in existing_ids_map.values())
+        if total_skipped:
+            logger.info("Skipping {} already embedded papers", total_skipped)
+
+    texts, paper_ids, years = _collect_embedding_inputs(
+        csv_files,
+        limit,
+        skip_map=existing_ids_map if not overwrite else None,
+    )
+    if not texts:
+        logger.info("No new papers require embeddings for model {}", model_config.alias)
+        return
+
+    embeddings = service.embed_texts(texts, model_config)
+    output_path = _write_embeddings_output(
+        service,
+        model_config,
+        paper_ids,
+        embeddings,
+        years,
+        overwrite=overwrite,
+    )
+
+    logger.info(
+        "Generated {} embeddings for model {} -> {}",
+        embeddings.shape[0],
+        model_config.alias,
+        output_path,
+    )
 
 
 @app.command(help="Run the recommendation pipeline")
