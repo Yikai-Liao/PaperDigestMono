@@ -17,7 +17,6 @@ data/
     <model_alias>/
       YYYY.parquet
       manifest.json
-      backlog.parquet
   preferences/
     events-YYYY.csv
   summaries/
@@ -29,7 +28,7 @@ data/
 ```
 
 - **metadata/**：标准化后的论文元数据，按年份切分并提供汇总视图。
-- **embeddings/**：每种模型独立存放向量、清单与补齐待办。
+- **embeddings/**：每种模型独立存放向量与清单。
 - **preferences/**：用户偏好事件流，按年份追加。
 - **summaries/**：结构化摘要 JSONL，每月一文件。
 - **logs/**、**temp/**：运行时日志与临时缓存，默认不纳入版本管理。
@@ -73,12 +72,10 @@ data/
 | --- | --- | --- |
 | `YYYY.parquet` | 存放指定年份的向量数据 | `paper_id`、`embedding` (`list[float32]`)、`model_dim` (`int`)、`generated_at` (`ISO-8601`)、`source` |
 | `manifest.json` | 记录模型维度、样本总数、年度文件清单 | `model`、`dimension`、`total_rows`、`years`、`files`、`generated_at`、`source` |
-| `backlog.parquet` | 待补齐或失败的样本列表 | `paper_id`、`missing_reason`、`origin`、`queued_at` |
 
 **优点**
 - 向量与元数据解耦，便于替换模型或混合多源向量。
 - `manifest.json` 提供元数据，方便监控及同步。
-- `backlog` 支持调度器增量补齐。
 
 **不足**
 - `embedding` 仍采用 `float32`，磁盘开销较高，后续可考虑改为 `float16` 或引入分块存储。
@@ -170,7 +167,7 @@ data/recommendations/
 | 数据域 | 优点 | 不足 | 潜在优化 |
 | --- | --- | --- | --- |
 | 元数据 | CSV 易读、字段契合现有需求、与向量解耦 | 大字段无压缩、结构化信息打平 | 评估 DuckDB/Parquet 作为主存格式；保留 authors/categories 原始结构 |
-| 向量 | 分模型存储、自带 manifest/backlog | 空间成本高、无校验 | 引入压缩/分块；记录校验和；backlog 加权优先级 |
+| 向量 | 分模型存储、自带 manifest | 空间成本高、无校验 | 引入压缩/分块；记录校验和；根据消费方拆分增量目录 |
 | 偏好 | 轻量、兼容旧 CSV、便于年份过滤 | 字段少、缺少来源追踪 | 增补 `source`/`confidence` 字段；引入事件版本号 |
 | 摘要 | JSONL 易 diff、字段顺序固定、留有源路径 | 字段稀疏、`lang` 缺乏验证、多语言难支撑 | 设计 schema registry；增加语言枚举校验；考虑拆分多版本摘要 |
 
@@ -184,7 +181,6 @@ data/recommendations/
 - **新增模型**：
   1. 在配置中注册新模型别名。
   2. 运行嵌入服务生成 `YYYY.parquet` 并同步 `manifest.json`。
-  3. 如需回填历史数据，确保 `backlog.parquet` 更新。
 
 - **数据校验**：
   - 元数据与偏好可使用 `polars`/`duckdb` 快速检查缺失值、重复 ID。

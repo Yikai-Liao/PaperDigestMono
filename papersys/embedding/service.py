@@ -5,8 +5,9 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 import traceback
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Literal, Sequence, cast
+from typing import Any, Literal, Sequence, cast
 
 import numpy as np
 import torch
@@ -28,6 +29,59 @@ except RuntimeError as exc:
     )
 
 os.environ.setdefault("VLLM_WORKER_MP_START_METHOD", "spawn")
+
+
+class EmbeddingBackend(ABC):
+    """Abstract base class for embedding backends."""
+
+    @abstractmethod
+    def embed_batch(
+        self,
+        texts: list[str],
+        model_config: EmbeddingModelConfig,
+        device: str,
+        precision: Literal["float16", "float32"],
+    ) -> np.ndarray:
+        """Generate embeddings for a batch of texts.
+        
+        Args:
+            texts: List of strings to embed.
+            model_config: Model configuration.
+            device: Target device (cuda/cpu/mps).
+            precision: Output precision.
+            
+        Returns:
+            numpy array of shape (len(texts), dimension).
+        """
+        pass
+
+    def cleanup(self) -> None:
+        """Optional cleanup when backend is no longer needed."""
+        pass
+
+
+class BackendRegistry:
+    """Registry for embedding backends."""
+
+    _backends: dict[str, type[EmbeddingBackend]] = {}
+
+    @classmethod
+    def register(cls, name: str, backend_class: type[EmbeddingBackend]) -> None:
+        """Register a backend implementation."""
+        cls._backends[name] = backend_class
+        logger.debug(f"Registered embedding backend: {name}")
+
+    @classmethod
+    def get(cls, name: str) -> type[EmbeddingBackend]:
+        """Get a registered backend class."""
+        if name not in cls._backends:
+            raise ValueError(f"Unknown backend '{name}'. Available: {list(cls._backends.keys())}")
+        return cls._backends[name]
+
+    @classmethod
+    def list_backends(cls) -> list[str]:
+        """List all registered backend names."""
+        return list(cls._backends.keys())
 
 
 def _vllm_embedding_worker(
@@ -120,90 +174,80 @@ def _vllm_embedding_worker(
             conn.close()
 
 
-class EmbeddingService:
-    """Provide a minimal text embedding API."""
+class SentenceTransformerBackend(EmbeddingBackend):
+    """Backend using sentence-transformers library."""
 
-    def __init__(self, config: EmbeddingConfig, base_path: Path | None = None):
-        self.config = config
-        raw_output_dir = Path(config.output_dir)
-        self.output_dir = self._resolve_output_dir(raw_output_dir, base_path)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._default_device: str | None = None
+    def __init__(self) -> None:
+        self._model_cache: dict[str, SentenceTransformer] = {}
 
-    def embed_texts(
+    def embed_batch(
         self,
-        texts: Sequence[str],
+        texts: list[str],
         model_config: EmbeddingModelConfig,
+        device: str,
+        precision: Literal["float16", "float32"],
     ) -> np.ndarray:
-        """
-        Generate embeddings for provided texts.
-
-        Args:
-            texts: Input sentences to embed.
-            model_config: Model configuration controlling backend and batching.
-
-        Returns:
-            A 2D numpy array of shape (len(texts), model_config.dimension).
-        """
-        text_buffer = list(texts)
-        if not text_buffer:
-            return np.empty((0, model_config.dimension), dtype=np.float32)
-
-        device = self._resolve_device(model_config)
-        precision = self._resolve_precision(model_config, device)
+        """Generate embeddings using sentence-transformers."""
+        model = self._get_or_load_model(model_config, device, precision)
         target_dtype = np.float16 if precision == "float16" else np.float32
-        batch_size = self._resolve_batch_size(len(text_buffer), model_config)
-
-        logger.info(
-            "Embedding {} texts with model {} (backend={}, device={}, precision={}, batch_size={})",
-            len(text_buffer),
-            model_config.alias,
-            model_config.backend,
-            device,
-            precision,
-            batch_size,
+        
+        vectors = model.encode(
+            texts,
+            batch_size=len(texts),
+            convert_to_numpy=True,
+            normalize_embeddings=False,
+            show_progress_bar=False,
         )
+        return np.asarray(vectors, dtype=target_dtype, copy=False)
 
-        batches: list[np.ndarray] = []
-        progress = tqdm(
-            total=len(text_buffer),
-            desc=f"Embedding ({model_config.alias})",
-            unit="text",
-        )
-
-        if model_config.backend == "sentence_transformer":
-            model = self._load_sentence_transformer(model_config, device, precision)
-            for start in range(0, len(text_buffer), batch_size):
-                batch_texts = text_buffer[start : start + batch_size]
-                vectors = self._encode_with_sentence_transformer(model, batch_texts, target_dtype)
-                batches.append(vectors)
-                progress.update(len(batch_texts))
-        elif model_config.backend == "vllm":
-            for start in range(0, len(text_buffer), batch_size):
-                batch_texts = text_buffer[start : start + batch_size]
-                vectors = self._embed_with_vllm_process(
-                    batch_texts,
-                    model_config,
-                    device,
-                    precision,
-                )
-                batches.append(np.asarray(vectors, dtype=target_dtype))
-                progress.update(len(batch_texts))
-        else:  # pragma: no cover - validated by config model
-            progress.close()
-            raise ValueError(f"Unsupported backend '{model_config.backend}'")
-
-        progress.close()
-
-        matrix = np.vstack(batches).astype(target_dtype, copy=False)
-        if matrix.shape[1] != model_config.dimension:
-            logger.warning(
-                "Embedding dimension mismatch for model {}: expected={} actual={}",
-                model_config.alias,
-                model_config.dimension,
-                matrix.shape[1],
+    def _get_or_load_model(
+        self,
+        model_config: EmbeddingModelConfig,
+        device: str,
+        precision: Literal["float16", "float32"],
+    ) -> SentenceTransformer:
+        """Load or retrieve cached model."""
+        cache_key = f"{model_config.name}_{device}_{precision}"
+        
+        if cache_key not in self._model_cache:
+            logger.debug(
+                "Loading SentenceTransformer model {} (device={}, precision={})",
+                model_config.name,
+                device,
+                precision,
             )
-        return matrix
+            model = SentenceTransformer(
+                model_config.name,
+                device=device,
+                trust_remote_code=True,
+            )
+            if precision == "float16":
+                try:
+                    model.half()
+                except AttributeError:
+                    logger.warning(
+                        "SentenceTransformer {} does not support half precision; falling back to float32",
+                        model_config.alias,
+                    )
+            self._model_cache[cache_key] = model
+        
+        return self._model_cache[cache_key]
+
+
+class VLLMBackend(EmbeddingBackend):
+    """Backend using vLLM library in subprocess."""
+
+    def embed_batch(
+        self,
+        texts: list[str],
+        model_config: EmbeddingModelConfig,
+        device: str,
+        precision: Literal["float16", "float32"],
+    ) -> np.ndarray:
+        """Generate embeddings using vLLM in subprocess."""
+        embeddings = self._embed_with_vllm_process(texts, model_config, device, precision)
+        target_dtype = np.float16 if precision == "float16" else np.float32
+        return np.asarray(embeddings, dtype=target_dtype)
 
     def _embed_with_vllm_process(
         self,
@@ -213,7 +257,6 @@ class EmbeddingService:
         precision: Literal["float16", "float32"],
     ) -> list[list[float]]:
         """Delegate vLLM inference to a dedicated subprocess."""
-
         ctx = mp.get_context("spawn")
         parent_conn, child_conn = ctx.Pipe(duplex=False)
 
@@ -262,49 +305,100 @@ class EmbeddingService:
         )
         return embeddings
 
-    def _load_sentence_transformer(
-        self,
-        model_config: EmbeddingModelConfig,
-        device: str,
-        precision: Literal["float16", "float32"],
-    ) -> SentenceTransformer:
-        """Instantiate a SentenceTransformer model with desired precision."""
 
-        logger.debug(
-            "Loading SentenceTransformer model {} (device={}, precision={})",
-            model_config.name,
+# Register all backends
+BackendRegistry.register("sentence_transformer", SentenceTransformerBackend)
+BackendRegistry.register("vllm", VLLMBackend)
+
+
+class EmbeddingService:
+    """Provide a minimal text embedding API."""
+
+    def __init__(self, config: EmbeddingConfig, base_path: Path | None = None):
+        self.config = config
+        raw_output_dir = Path(config.output_dir)
+        self.output_dir = self._resolve_output_dir(raw_output_dir, base_path)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._default_device: str | None = None
+        self._backend_instances: dict[str, EmbeddingBackend] = {}
+    
+    def __del__(self) -> None:
+        """Cleanup all backend instances."""
+        for backend in self._backend_instances.values():
+            try:
+                backend.cleanup()
+            except Exception as exc:
+                logger.warning(f"Error during backend cleanup: {exc}")
+
+    def embed_texts(
+        self,
+        texts: Sequence[str],
+        model_config: EmbeddingModelConfig,
+    ) -> np.ndarray:
+        """
+        Generate embeddings for provided texts.
+
+        Args:
+            texts: Input sentences to embed.
+            model_config: Model configuration controlling backend and batching.
+
+        Returns:
+            A 2D numpy array of shape (len(texts), model_config.dimension).
+        """
+        text_buffer = list(texts)
+        if not text_buffer:
+            return np.empty((0, model_config.dimension), dtype=np.float32)
+
+        device = self._resolve_device(model_config)
+        precision = self._resolve_precision(model_config, device)
+        target_dtype = np.float16 if precision == "float16" else np.float32
+        batch_size = self._resolve_batch_size(len(text_buffer), model_config)
+
+        logger.info(
+            "Embedding {} texts with model {} (backend={}, device={}, precision={}, batch_size={})",
+            len(text_buffer),
+            model_config.alias,
+            model_config.backend,
             device,
             precision,
+            batch_size,
         )
-        model = SentenceTransformer(
-            model_config.name,
-            device=device,
-            trust_remote_code=True,
-        )
-        if precision == "float16":
-            try:
-                model.half()
-            except AttributeError:
-                logger.warning(
-                    "SentenceTransformer {} does not support half precision; falling back to float32",
-                    model_config.alias,
-                )
-        return model
 
-    @staticmethod
-    def _encode_with_sentence_transformer(
-        model: SentenceTransformer,
-        texts: Sequence[str],
-        target_dtype: np.dtype,
-    ) -> np.ndarray:
-        vectors = model.encode(
-            list(texts),
-            batch_size=len(texts),
-            convert_to_numpy=True,
-            normalize_embeddings=False,
-            show_progress_bar=False,
+        # Get or create backend instance
+        backend = self._get_backend(model_config.backend)
+        
+        batches: list[np.ndarray] = []
+        progress = tqdm(
+            total=len(text_buffer),
+            desc=f"Embedding ({model_config.alias})",
+            unit="text",
         )
-        return np.asarray(vectors, dtype=target_dtype, copy=False)
+
+        for start in range(0, len(text_buffer), batch_size):
+            batch_texts = text_buffer[start : start + batch_size]
+            vectors = backend.embed_batch(batch_texts, model_config, device, precision)
+            batches.append(vectors)
+            progress.update(len(batch_texts))
+
+        progress.close()
+
+        matrix = np.vstack(batches).astype(target_dtype, copy=False)
+        if matrix.shape[1] != model_config.dimension:
+            logger.warning(
+                "Embedding dimension mismatch for model {}: expected={} actual={}",
+                model_config.alias,
+                model_config.dimension,
+                matrix.shape[1],
+            )
+        return matrix
+
+    def _get_backend(self, backend_name: str) -> EmbeddingBackend:
+        """Get or create a backend instance."""
+        if backend_name not in self._backend_instances:
+            backend_class = BackendRegistry.get(backend_name)
+            self._backend_instances[backend_name] = backend_class()
+            logger.debug(f"Initialized backend instance: {backend_name}")
+        return self._backend_instances[backend_name]
 
     def _resolve_device(self, model_config: EmbeddingModelConfig) -> str:
         device = (model_config.device or "").strip()

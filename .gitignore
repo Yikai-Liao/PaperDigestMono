@@ -1,7 +1,9 @@
 **/*.pyc
+**/*.egg-info
 logs/
 data/
 backups/
 .tmp*/
+tmp/
 temp/
 **/__pycache__/

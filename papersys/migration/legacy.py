@@ -74,13 +74,6 @@ EMBEDDING_REQUIRED_COLUMNS: tuple[str, ...] = (
     "source",
 )
 
-BACKLOG_REQUIRED_COLUMNS: tuple[str, ...] = (
-    "paper_id",
-    "missing_reason",
-    "origin",
-    "queued_at",
-)
-
 PREFERENCE_REQUIRED_COLUMNS: tuple[str, ...] = (
     "paper_id",
     "preference",
@@ -124,7 +117,6 @@ class LegacyMigrator:
         self.paper_digest_action_root = config.reference_roots[1].resolve()
         self.api = HfApi() if config.hf_dataset else None
         self.metadata_frames: list[pl.DataFrame] = []
-        self.embedding_backlogs: dict[str, list[pl.DataFrame]] = defaultdict(list)
         self.report: dict[str, object] = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "metadata": {"years": {}, "total_rows": 0},
@@ -277,10 +269,9 @@ class LegacyMigrator:
         self,
         year: int,
         frame: pl.DataFrame,
-    ) -> tuple[pl.DataFrame, dict[str, pl.DataFrame], dict[str, pl.DataFrame]]:
+    ) -> tuple[pl.DataFrame, dict[str, pl.DataFrame]]:
         metadata_df = self._build_metadata_frame(frame)
         embeddings = self._build_embedding_frames(frame)
-        backlogs = self._build_backlog_frames(frame, embeddings)
 
         metadata_report = cast(dict[str, Any], self.report["metadata"])
         years_report = cast(dict[str, int], metadata_report["years"])  # type: ignore[index]
@@ -303,7 +294,7 @@ class LegacyMigrator:
             years_info[str(year)] = data.height
             model_report["total_rows"] = int(model_report.get("total_rows") or 0) + data.height
 
-        return metadata_df, embeddings, backlogs
+        return metadata_df, embeddings
 
     def _build_metadata_frame(self, frame: pl.DataFrame) -> pl.DataFrame:
         columns = frame.columns
@@ -396,29 +387,12 @@ class LegacyMigrator:
             embeddings[model] = embedding_df
         return embeddings
 
-    def _build_backlog_frames(
-        self,
-        frame: pl.DataFrame,
-        embeddings: dict[str, pl.DataFrame],
-    ) -> dict[str, pl.DataFrame]:
-        backlogs: dict[str, pl.DataFrame] = {}
-        for model in embeddings:
-            missing = frame.filter(pl.col(model).is_null()).select(
-                pl.col("id").alias("paper_id"),
-                pl.lit("null_embedding").alias("missing_reason"),
-                pl.lit("legacy_migration").alias("origin"),
-                pl.lit(self.report["generated_at"]).alias("queued_at"),
-            )
-            if not missing.is_empty():
-                backlogs[model] = missing
-        return backlogs
-
     def _write_year_artifacts(
         self,
         year: int,
-        artifacts: tuple[pl.DataFrame, dict[str, pl.DataFrame], dict[str, pl.DataFrame]],
+        artifacts: tuple[pl.DataFrame, dict[str, pl.DataFrame]],
     ) -> None:
-        metadata_df, embeddings, backlogs = artifacts
+        metadata_df, embeddings = artifacts
 
         metadata_dir = self.output_root / "metadata"
         metadata_path = metadata_dir / f"metadata-{year}.csv"
@@ -440,16 +414,6 @@ class LegacyMigrator:
                 allow_empty=True,
             )
             self._write_parquet(parquet_path, df, overwrite=True)
-
-            backlog = backlogs.get(model)
-            if backlog is not None and not backlog.is_empty():
-                self._validate_frame(
-                    target=f"embeddings-{model}-backlog-{year}",
-                    frame=backlog,
-                    required_columns=BACKLOG_REQUIRED_COLUMNS,
-                    allow_empty=True,
-                )
-                self.embedding_backlogs[model].append(backlog)
 
     def _finalize_metadata(self) -> None:
         if not self.metadata_frames:
@@ -474,19 +438,7 @@ class LegacyMigrator:
         for model, raw_report in embeddings_report.items():
             model_report = cast(dict[str, Any], raw_report)
             years_info = cast(dict[str, int], model_report.get("years", {}))
-            backlog_frames = self.embedding_backlogs.get(model, [])
             model_dir = embeddings_dir / model
-
-            if backlog_frames:
-                backlog_df = pl.concat(backlog_frames, how="vertical").unique(subset=["paper_id"], keep="last")
-                backlog_path = model_dir / "backlog.parquet"
-                self._validate_frame(
-                    target=f"embeddings-{model}-backlog",
-                    frame=backlog_df,
-                    required_columns=BACKLOG_REQUIRED_COLUMNS,
-                    allow_empty=False,
-                )
-                self._write_parquet(backlog_path, backlog_df, overwrite=True)
 
             manifest_payload = {
                 "model": model,

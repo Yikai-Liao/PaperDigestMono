@@ -50,15 +50,15 @@ def test_embed_texts_returns_matrix(service: EmbeddingService, embedding_config:
     model_config = embedding_config.models[0]
     fake_vectors = np.full((len(texts), model_config.dimension), 0.5, dtype=np.float32)
 
-    mock_model = MagicMock()
-    mock_model.encode.return_value = fake_vectors
+    mock_backend = MagicMock()
+    mock_backend.embed_batch.return_value = fake_vectors
 
-    with patch.object(EmbeddingService, "_load_sentence_transformer", return_value=mock_model):
+    with patch.object(service, "_get_backend", return_value=mock_backend):
         result = service.embed_texts(texts, model_config)
 
     assert result.shape == (len(texts), model_config.dimension)
     np.testing.assert_allclose(result, fake_vectors)
-    mock_model.encode.assert_called_once()
+    mock_backend.embed_batch.assert_called_once()
 
 
 def test_embed_texts_honours_batch_size(service: EmbeddingService, embedding_config: EmbeddingConfig) -> None:
@@ -66,14 +66,14 @@ def test_embed_texts_honours_batch_size(service: EmbeddingService, embedding_con
     texts = ["t1", "t2", "t3"]
     fake_vector = np.ones((1, model_config.dimension), dtype=np.float32)
 
-    mock_model = MagicMock()
-    mock_model.encode.return_value = fake_vector
+    mock_backend = MagicMock()
+    mock_backend.embed_batch.return_value = fake_vector
 
-    with patch.object(EmbeddingService, "_load_sentence_transformer", return_value=mock_model):
+    with patch.object(service, "_get_backend", return_value=mock_backend):
         result = service.embed_texts(texts, model_config)
 
     assert result.shape == (len(texts), model_config.dimension)
-    assert mock_model.encode.call_count == len(texts)
+    assert mock_backend.embed_batch.call_count == len(texts)
 
 
 def test_embed_texts_handles_empty_input(service: EmbeddingService, embedding_config: EmbeddingConfig) -> None:
@@ -95,18 +95,38 @@ def test_embed_texts_vllm_backend(service: EmbeddingService) -> None:
         model_path=None,
     )
 
-    with patch.object(
-        EmbeddingService,
-        "_embed_with_vllm_process",
-        return_value=[[0.1] * model_config.dimension, [0.2] * model_config.dimension],
-    ) as worker_mock:
+    fake_embeddings = np.array(
+        [[0.1] * model_config.dimension, [0.2] * model_config.dimension],
+        dtype=np.float32
+    )
+    
+    mock_backend = MagicMock()
+    mock_backend.embed_batch.return_value = fake_embeddings
+
+    with patch.object(service, "_get_backend", return_value=mock_backend):
         result = service.embed_texts(["x", "y"], model_config)
 
     assert result.shape == (2, model_config.dimension)
-    worker_mock.assert_called()
+    mock_backend.embed_batch.assert_called()
 
 
 def test_batch_size_never_exceeds_total(service: EmbeddingService, embedding_config: EmbeddingConfig) -> None:
     model_config = embedding_config.models[0]
     assert service._resolve_batch_size(5, model_config) == 5
+
+
+def test_backend_registry_has_all_backends() -> None:
+    """Test that all expected backends are registered."""
+    from papersys.embedding.service import BackendRegistry
+    
+    available = BackendRegistry.list_backends()
+    assert "sentence_transformer" in available
+    assert "vllm" in available
+
+
+def test_backend_instances_are_cached(service: EmbeddingService) -> None:
+    """Test that backend instances are cached and reused."""
+    backend1 = service._get_backend("sentence_transformer")
+    backend2 = service._get_backend("sentence_transformer")
+    assert backend1 is backend2
 

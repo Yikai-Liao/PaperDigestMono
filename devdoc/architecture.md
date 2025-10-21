@@ -104,7 +104,6 @@ data/
     <model_alias>/
       YYYY.parquet                      # 列：paper_id, embedding (list[float32]), generated_at, source
       manifest.json                     # 记录样本数、维度、上游模型信息
-      backlog.parquet                   # 需补齐 embedding 的 paper 列表（详见下文）
   preferences/
     events-YYYY.csv                     # 追加式事件流（逗号分隔，字符串按 CSV 规范转义）
   summaries/
@@ -122,7 +121,6 @@ data/
 | --- | --- | --- | --- |
 | `metadata/curated/metadata-YYYY.csv` | `paper_id`、`title`、`abstract`、`categories`（以 `;` 分隔的 ISO cats）、`published_at`、`updated_at`、`primary_category` | `doi`、`authors`（`;` 分隔）、`comment`、`journal_ref`、`versions`（JSON 字符串）、`ingested_at` | 字符串使用 UTF-8；含换行内容需经 CSV 规范转义 |
 | `embeddings/<model_alias>/YYYY.parquet` | `paper_id`、`embedding` (list[float32])、`model_dim` (int)、`generated_at` (UTC ISO) | `hash`（向量哈希）、`version`（模型权重标记）、`source`（local/hf/manual） | `embedding` 推荐使用 `float32`；若需节省空间可在迁移脚本中转 `float16` |
-| `embeddings/<model_alias>/backlog.parquet` | `paper_id`、`origin`（metadata/legacy/import）、`missing_reason`、`queued_at` | `priority`、`retry_count` | 记录待补齐的论文列表，调度器据此分配任务 |
 | `preferences/events-YYYY.csv` | `paper_id`、`preference`（enum: like/dislike/neutral）、`recorded_at` | `source`、`confidence`、`note` | 引擎按 CSV 附加模式写入；字符串需转义 |
 
 #### 推荐候选集构建（更新）
@@ -138,15 +136,13 @@ data/
 #### 路径与访问策略
 - 所有读写通过 `AppConfig.data_root` 解析，允许相对/绝对路径；调度器、CLI 默认指向仓库根下 `data/`。
 - 元数据抓取结果直接写入 CSV；若需保存原始 OAI 响应，可额外启用 Debug 选项输出至 `metadata/raw/arxiv/debug/`（默认关闭）。
-- 迁移工具通过 `papersys.cli migrate legacy` 调用，复用 `LegacyMigrator` 将 Hugging Face 年度 Parquet 拆分为本地 `metadata/metadata-YYYY.csv`、`embeddings/<model>/YYYY.parquet`，并生成 `backlog.parquet`、偏好事件 `preferences/events-YYYY.csv` 与摘要归档 `summaries/YYYY-MM.jsonl`；命令支持 dry-run、强制覆盖、下载重试与输出 schema 校验。
+- 迁移工具通过 `papersys.cli migrate legacy` 调用，复用 `LegacyMigrator` 将 Hugging Face 年度 Parquet 拆分为本地 `metadata/metadata-YYYY.csv`、`embeddings/<model>/YYYY.parquet`，并生成偏好事件 `preferences/events-YYYY.csv` 与摘要归档 `summaries/YYYY-MM.jsonl`；命令支持 dry-run、强制覆盖、下载重试与输出 schema 校验。
 - `SummaryPipeline` 在 `data/summaries/` 下追加 `YYYY-MM.jsonl` 与 `manifest-<run_id>.json`，Markdown 输出放入 `pdf.output_dir/markdown/<run_id>/`；PDF 可复用或按需清理。
 - 备份服务打包 `data/`、`logs/`、`config/` 至 `backups/`（或远端），恢复时依据 MANIFEST 还原。
 
 #### 自动化补齐策略
 - `EmbeddingService` 每次写入向量后自动更新 `embeddings/<model>/manifest.json`（累计行数、年度文件清单、生成时间）并产出标准 schema 的年度 Parquet（字段：`paper_id`、`embedding`、`generated_at`、`model_dim`、`source`）。
-- `refresh_backlog()` 会扫描 `metadata/` 与现有 Parquet 差集，将缺失或新出现的 `paper_id` 写入 `embeddings/<model>/backlog.parquet`（字段含 `paper_id`、`missing_reason`、`origin`、`queued_at`、`model_alias`、`year`），幂等覆盖旧状态。
-- CLI `papersys embed --backlog` 基于 backlog 中记录的 `origin` 逐个处理对应 CSV，完成后自动刷新 backlog；常规模式也会在批量运行后重新计算 backlog，确保文件与实际状态同步。
-- 生产环境可结合配置项 `auto_fill_backlog=true` 与调度作业 `scheduler.embedding_backfill_job` 周期刷新 backlog，实现无人值守补齐；手动演示可使用 `scripts/run_embedding_sample.py --model <alias> --limit 5` 进行小批量验证。
+- Backlog 机制已废弃；嵌入补齐由常规批处理与 `--overwrite` 选项兜底，调度回补交由 `scheduler.embedding_backfill_job` 自行运行完整嵌入流程。
 
 #### 目录忽略策略
 - `data/`、`backups/`、`.tmp-backups/` 等运行目录已加入 `.gitignore`，临时目录（`temp/`）默认也忽略。
