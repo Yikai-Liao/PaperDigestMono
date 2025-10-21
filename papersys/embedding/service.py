@@ -229,6 +229,39 @@ class SentenceTransformerBackend(EmbeddingBackend):
                         "SentenceTransformer {} does not support half precision; falling back to float32",
                         model_config.alias,
                     )
+            
+            # Apply torch.compile() optimization for large-batch inference (PyTorch 2.0+)
+            if model_config.use_bettertransformer:
+                try:
+                    import torch
+                    if hasattr(torch, 'compile'):
+                        logger.info(
+                            "Applying torch.compile() optimization to model {} (optimized for large batches)",
+                            model_config.alias,
+                        )
+                        # Compile the underlying transformer model
+                        # Use "max-autotune" mode for best throughput on large batches
+                        model[0].auto_model = torch.compile(
+                            model[0].auto_model,
+                            mode="max-autotune",
+                            fullgraph=False,
+                        )
+                        logger.info(
+                            "torch.compile() applied successfully to {} (first inference will trigger compilation)",
+                            model_config.alias,
+                        )
+                    else:
+                        logger.warning(
+                            "torch.compile() requires PyTorch 2.0+; skipping optimization for {}",
+                            model_config.alias,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to apply torch.compile() to {}: {}",
+                        model_config.alias,
+                        exc,
+                    )
+            
             self._model_cache[cache_key] = model
         
         return self._model_cache[cache_key]

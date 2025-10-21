@@ -19,6 +19,7 @@ dependencies = [
     "numcodecs==0.12.1",
     "numpy>=2.2.0,<2.3", # Constrained by numba 0.61.2 (required by vllm 0.10.2)
     "openai>=1.78.1",
+    "optimum>=2.0.0",
     "polars>=1.33.1",
     "pyarrow>=17.0.0",
     "pydantic>=2.11.9",

@@ -130,3 +130,4 @@ def test_backend_instances_are_cached(service: EmbeddingService) -> None:
     backend2 = service._get_backend("sentence_transformer")
     assert backend1 is backend2
 
+

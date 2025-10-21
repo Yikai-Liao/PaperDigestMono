@@ -1864,6 +1864,22 @@ wheels = [
 ]
 
 [[package]]
+name = "optimum"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d5/2e/45e61beac8b53514f3b658ee54e0c31c46bd8110bfed20cc15a670c198c6/optimum-2.0.0.tar.gz", hash = "sha256:4e59e51128ed6311b615dcee84c1559702d82cbd4bae18fd3031f4fe927c484c", size = 126935, upload-time = "2025-10-09T10:56:14.928Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/c1/42d1929b36b977613940d2a36cba077da7b8152492788bf5fad9de27dc3f/optimum-2.0.0-py3-none-any.whl", hash = "sha256:23bc60a679db676b578c7692bab7a62af31e27fe648fdc45d2bd4d3aabfcb2d9", size = 162279, upload-time = "2025-10-09T10:56:13.165Z" },
+]
+
+[[package]]
 name = "outlines-core"
 version = "0.2.11"
 source = { registry = "https://pypi.org/simple" }
@@ -1915,6 +1931,7 @@ dependencies = [
     { name = "numcodecs" },
     { name = "numpy" },
     { name = "openai" },
+    { name = "optimum" },
     { name = "polars" },
     { name = "pyarrow" },
     { name = "pydantic" },
@@ -1953,6 +1970,7 @@ requires-dist = [
     { name = "numcodecs", specifier = "==0.12.1" },
     { name = "numpy", specifier = ">=2.2.0,<2.3" },
     { name = "openai", specifier = ">=1.78.1" },
+    { name = "optimum", specifier = ">=2.0.0" },
     { name = "polars", specifier = ">=1.33.1" },
     { name = "pyarrow", specifier = ">=17.0.0" },
     { name = "pydantic", specifier = ">=2.11.9" },

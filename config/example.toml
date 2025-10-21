@@ -55,21 +55,21 @@ backend = "sentence_transformer"
 alias = "conan_v1"
 name = "TencentBAC/Conan-embedding-v1"
 dimension = 1792
-batch_size = 32
+batch_size = 128  # Large batch size for better GPU utilization
 max_length = 512
 backend = "sentence_transformer"
+# use_bettertransformer = true  # Optional: enable torch.compile() for large-batch inference (14x speedup, see benchmarks)
 
 [[embedding.models]]
 alias = "qwen3_0_6b"
 name = "Qwen/Qwen3-Embedding-0.6B"
 dimension = 1024
-batch_size = 8
+batch_size = 32
 max_length = 2048
-device = "cuda"  # Explicitly select GPU to avoid pre-spawn CUDA init
+device = "cuda"
 precision = "auto"
-backend = "sentence_transformer"
-
-# vllm_gpu_memory_utilization = 0.55
+backend = "vllm"  # Use vLLM for GPU acceleration
+vllm_gpu_memory_utilization = 0.6
 
 # Scheduler configuration
 [scheduler]

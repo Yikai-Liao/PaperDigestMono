@@ -40,6 +40,10 @@ class EmbeddingModelConfig(BaseConfig):
         le=1.0,
         description="Optional GPU memory utilization target for vLLM (0.1-1.0); overrides environment variable",
     )
+    use_bettertransformer: bool = Field(
+        False,
+        description="Enable torch.compile() for large-batch inference optimization (PyTorch 2.0+, first run slower due to compilation)",
+    )
 
 
 class EmbeddingConfig(BaseConfig):
