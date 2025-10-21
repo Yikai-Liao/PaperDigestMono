@@ -1,4 +1,4 @@
-# Infinity Backend 兼容性测试 - 最终总结
+中# Infinity Backend 兼容性测试 - 最终总结
 
 ## 🎯 测试目标
 验证是否可以在 numpy 2.x 环境下强制使用 infinity-emb/embed 库来运行 conan_v1 模型。
